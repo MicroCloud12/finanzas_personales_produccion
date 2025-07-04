@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+{% load humanize %}
+{% block content %}
+{% load static %}
+
+<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
+    </div>
+
+    <div class="bg-white p-4 rounded-xl shadow-lg mb-8">
+        <form method="GET" action="" class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
+            <div class="flex items-center space-x-2">
+                <label for="month" class="text-sm font-medium text-gray-700">Mes:</label>
+                <select name="month" id="month" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    {% for m in months %}
+                        <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex items-center space-x-2">
+                <label for="year" class="text-sm font-medium text-gray-700">Año:</label>
+                <select name="year" id="year" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    {% for y in years %}
+                        <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="w-full sm:w-auto flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Filtrar
+            </button>
+        </form>
+    </div>
+    <!-- Ingresos del Mes -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+                <svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 5.814 5.518l2.74 1.22m0 0-5.94-2.28m5.94 2.28L18.75 21" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Ingresos del Mes</p>
+                <p class="text-2xl font-bold text-gray-900">${{ ingresos|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+    
+        <!-- Gastos del Mes -->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-red-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-red-500">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 5.814 5.518l2.74 1.22m0 0-5.94-2.28m5.94 2.28L18.75 21" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Gastos del Mes</p>
+                <p class="text-2xl font-bold text-gray-900">${{ gastos|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+    <!-- Balance -->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-blue-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-blue-600">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0 0 12 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 0 1-2.153.34c-1.325 0-2.56-.21-3.72-.609m12.74-12.74c.253.184.487.382.707.598m-12.74-12.74L4.5 17.25m10.726-10.726c-1.01.143-2.01.317-3 .52m-3-.52l-2.62 10.726A5.988 5.988 0 0 0 2.25 18c-1.325 0-2.56-.21-3.72-.609m12.74-12.74c-.253.184-.487.382-.707.598" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Balance</p>
+                <p class="text-2xl font-bold {% if balance >= 0 %}text-gray-900{% else %}text-red-600{% endif %}">${{ balance|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+        <!-- Ahorro -->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-amber-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-amber-600">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5M12 21v-1.5M6.364 6.364l1.06 1.06M17.657 17.657l-1.06-1.06M3 12h1.5M21 12h-1.5M6.364 17.657l1.06-1.06M17.657 6.343l-1.06 1.06M12 7.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Ahorro</p>
+                <p class="text-2xl font-bold text-gray-900">${{ ahorro|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+        <!-- Transferencias -->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-yellow-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-yellow-500">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 19.5V21a1.5 1.5 0 0 1-3 0v-1.5a6.75 6.75 0 0 1-6.75-6.75H2.25a.75.75 0 0 1 0-1.5h4.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V12a7.5 7.5 0 0 1 7.5-7.5c4.142 0 7.5 3.358 7.5 7.5a7.5 7.5 0 0 1-7.5 7.5z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Transferencias</p>
+                <p class="text-2xl font-bold text-gray-900">${{ transferencias|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+        <!-- Disponible en Banco -->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-violet-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-violet-600">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 3a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 12m15-3H6m12 0a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25m15 6H6m12 0a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Disponible en Banco</p>
+                <p class="text-2xl font-bold text-gray-900">${{ disponible_banco|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h3 class="text-lg font-semibold text-gray-700 mb-4">Gastos por Categoría</h3>
+            <div class="relative h-170">
+                <canvas id="gastosPorCategoriaChart"></canvas>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h3 class="text-lg font-semibold text-gray-700 mb-4">Ingresos vs Gastos</h3>
+            <div class="relative h-170">
+                <canvas id="flujoDeDineroChart"></canvas>
+            </div>
+        </div>
+
+    </div>
+</div>
+...
+<script>
+// Nos aseguramos de que el DOM esté completamente cargado antes de ejecutar el script
+document.addEventListener('DOMContentLoaded', function() {
+    // Obtenemos el "lienzo" donde se dibujará el gráfico
+    const ctx = document.getElementById('gastosPorCategoriaChart').getContext('2d');
+
+    // Creamos la URL para nuestra API, usando los filtros actuales de la página
+    const url = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
+
+    // Usamos la función 'fetch' de JavaScript para llamar a nuestra API
+    fetch(url)
+        .then(response => response.json()) // Convertimos la respuesta a JSON
+        .then(data => { // Una vez que tenemos los datos...
+
+            // Creamos un nuevo gráfico usando Chart.js
+            new Chart(ctx, {
+                type: 'doughnut', // Tipo de gráfico: de dona (parecido al de pastel)
+                data: {
+                    labels: data.labels, // Las etiquetas (ej: 'Comida', 'Renta') vienen de nuestra API
+                    datasets: [{
+                        label: 'Gastos por Categoría',
+                        data: data.data, // Los datos (ej: 5000, 2500) vienen de nuestra API
+                        backgroundColor: [ // Una paleta de colores
+                            'rgba(255, 99, 132, 0.8)',
+                            'rgba(54, 162, 235, 0.8)',
+                            'rgba(255, 206, 86, 0.8)',
+                            'rgba(75, 192, 192, 0.8)',
+                            'rgba(153, 102, 255, 0.8)',
+                            'rgba(255, 159, 64, 0.8)'
+                        ],
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    }
+                }
+            });
+        });
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // --- GRÁFICO 1: GASTOS POR CATEGORÍA (código que ya tienes) ---
+    const ctxPie = document.getElementById('gastosPorCategoriaChart').getContext('2d');
+    const urlPie = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
+    fetch(urlPie)
+        .then(response => response.json())
+        .then(data => {
+            new Chart(ctxPie, {
+                type: 'doughnut',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        data: data.data,
+                        backgroundColor: [/* ... tus colores ... */],
+                        // ... más opciones ...
+                    }]
+                },
+                // ... opciones ...
+            });
+        });
+
+    // --- GRÁFICO 2: FLUJO DE DINERO (código nuevo) ---
+    const ctxBar = document.getElementById('flujoDeDineroChart').getContext('2d');
+    const urlBar = `{% url 'api_flujo_dinero' %}?year={{ selected_year }}&month={{ selected_month }}`;
+    fetch(urlBar)
+        .then(response => response.json())
+        .then(data => {
+            new Chart(ctxBar, {
+                type: 'bar', // Tipo de gráfico: de barras
+                data: {
+                    labels: data.labels, // ['Ingresos', 'Gastos']
+                    datasets: [{
+                        label: 'Flujo de Dinero',
+                        data: data.data, // [valor_ingresos, valor_gastos]
+                        backgroundColor: [
+                            'rgba(75, 192, 192, 0.6)', // Color para la barra de Ingresos
+                            'rgba(255, 99, 132, 0.6)'  // Color para la barra de Gastos
+                        ],
+                        borderColor: [
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(255, 99, 132, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false, // <-- LA LÍNEA MÁGICA
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+            });
+        });
+});
+</script>
+{% endblock %}

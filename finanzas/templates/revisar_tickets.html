@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto mt-10 p-5">
+
+    {# Encabezado de la página, consistente con el de Registro de Transacciones #}
+    <div class="md:flex md:items-center md:justify-between mb-6">
+        <div class="min-w-0 flex-1">
+            <h1 class="text-3xl font-bold leading-7 text-gray-900 sm:truncate sm:tracking-tight">
+                Revisar Tickets Pendientes
+            </h1>
+        </div>
+    </div>
+
+    {# Contenedor de la tabla, con el mismo estilo #}
+    <div class="bg-white p-6 rounded-lg shadow-md overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descripción</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for ticket in tickets %}
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">{{ ticket.datos_json.fecha }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">{{ ticket.datos_json.descripcion|default:ticket.datos_json.establecimiento }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-red-600 align-middle">${{ ticket.datos_json.total }}</td>
+
+                    {# Celda de acciones con estilos unificados #}
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium align-middle">
+                        <form action="{% url 'aprobar_ticket' ticket.id %}" method="POST" class="flex items-center space-x-3">
+                            {% csrf_token %}
+                            
+                            <select name="cuenta_origen" class="block w-40 border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 sm:text-sm">
+                                <option>Efectivo Quincena</option>
+                                <option>Cuenta Ahorro</option>
+                                <option>Tarjeta de Crédito</option>
+                                <option>Otra Cuenta</option>
+                            </select>
+
+                            <select name="categoria" class="block w-40 border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 sm:text-sm">
+                                <option>Comida</option>
+                                <option>Transporte</option>
+                                <option>Supermercado</option>
+                                <option>Entretenimiento</option>
+                                <option>Servicios</option>
+                                <option>Otro</option>
+                            </select>
+
+                            <button type="submit" class="text-green-600 hover:text-green-900 font-semibold">Aprobar</button>
+                            <a href="{% url 'rechazar_ticket' ticket.id %}" class="text-red-600 hover:text-red-900 font-semibold pl-2">Rechazar</a>
+                        </form>
+                    </td>
+
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="px-6 py-4 text-center text-gray-500">No hay tickets pendientes por revisar.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">Detalle de Transacciones</h1>
+        <div class="flex items-center space-x-4"> 
+            <a href="{% url 'crear_transacciones' %}" class="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                + Añadir Transacción
+            </a>
+            <a href="{% url 'procesamiento_automatico' %}" class="bg-green-600 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                + Añadir Automáticamente
+            </a>
+            <a href="{% url 'revisar_tickets' %}" class="bg-green-600 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                Revisar Tickets Pendientes
+            </a>
+        </div>
+    </div>
+    <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+        <table class="min-w-full leading-normal">
+            <thead>
+                <tr class="border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th class="px-5 py-3">Fecha</th>
+                    <th class="px-5 py-3">Descripción</th>
+                    <th class="px-5 py-3">Categoría</th>
+                    <th class="px-5 py-3">Tipo</th>
+                    <th class="px-5 py-3">Cuenta Origen</th>
+                    <th class="px-5 py-3">Monto</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for transaccion in transacciones %}
+                    <tr class="border-b border-gray-200">
+                        <td class="px-5 py-5 bg-white text-sm">{{ transaccion.fecha|date:"Y-m-d" }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">{{ transaccion.descripcion }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">{{ transaccion.categoria }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">{{ transaccion.tipo }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">{{ transaccion.cuenta_origen }}</td>
+                        <td class="px-5 py-5 bg-white text-sm font-semibold {% if transaccion.tipo == 'INGRESO' %}text-green-600{% else %}text-red-600{% endif %}">
+                            ${{ transaccion.monto|floatformat:2|intcomma }}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center py-10">No hay transacciones para este periodo.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

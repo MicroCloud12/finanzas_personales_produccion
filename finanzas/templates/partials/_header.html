@@ -1,0 +1,43 @@
+{% load static %}
+<header class="bg-white shadow-md">
+  <div class="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16">
+      <div class="flex-shrink-0">
+            <a href="{% url 'home' %}" class="flex items-center space-x-1">
+          <img src="{% static 'img/Logo.svg' %}" alt="Logo de FinanzasApp" class="h-12 w-auto">
+          <span class="text-2xl font-bold text-indigo-600 hover:text-indigo-800">
+            FinanzasApp
+          </span>
+        </a>
+      </div>
+      <div class="hidden md:block">
+        <div class="ml-10 flex items-baseline space-x-4">
+          {% if user.is_authenticated %}
+            <a href="{% url 'dashboard' %}" class="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded-md text-sm font-medium">Dashboard</a>
+            <a href="{% url 'lista_transacciones' %}" class="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded-md text-sm font-medium">Registro Transacciones</a>
+            <form action="{% url 'logout' %}" method="post" class="inline">
+              {% csrf_token %}
+              <button type="submit" class="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded-md text-sm font-medium text-left w-full">
+                Cerrar Sesión
+              </button>
+            </form>
+          {% else %}
+            <a href="{% url 'registro_usuarios' %}" class="text-gray-600 hover:bg-gray-100 px-3 py-2 rounded-md text-sm font-medium">Registrarse</a> 
+            <a href="{% url 'login' %}" class="bg-indigo-600 text-white hover:bg-indigo-700 px-3 py-2 rounded-md text-sm font-medium">Iniciar Sesión</a> 
+          {% endif %}
+        </div>
+      </div>   
+      <div class="-mr-2 flex md:hidden">
+        <button type="button" class="bg-gray-800 inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white" aria-controls="mobile-menu" aria-expanded="false">
+          <span class="sr-only">Abrir menú principal</span>
+          <svg class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <svg class="hidden h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,84 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Finanzas Personales</title>
+
+    <!-- Load favicon 
+    <link
+      rel="shortcut icon"
+      type="image/png"
+      href="{% static 'img/favicon.ico' %}"
+    />-->
+
+    <!-- Include your CSS files here 
+    <link
+      rel="preload"
+      as="style"
+      href="{% static 'css/style.css' %}"
+      onload="this.rel = 'stylesheet'"
+    />-->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Karla&family=Markazi+Text:wght@500&display=swap" rel="stylesheet"/>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+     <link
+      rel="preload"
+      as="style"
+      href="{% static 'css/styles.css' %}"
+      onload="this.rel = 'stylesheet'">
+  </head>
+
+  <body>
+    <!--Header content-->
+    {% include 'partials/_header.html' %}
+    {# --- AÑADE ESTE BLOQUE PARA MOSTRAR MENSAJES --- #}
+    <hr>
+    {% if messages %}
+        <div class="fixed top-5 right-5 z-50">
+        {% for message in messages %}
+            <div class="mb-4 rounded-lg px-6 py-5 text-base shadow-lg 
+                        {% if message.tags == 'success' %} bg-green-100 text-green-700 
+                        {% elif message.tags == 'error' %} bg-red-100 text-red-700 
+                        {% else %} bg-blue-100 text-blue-700 
+                        {% endif %}" 
+                 role="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
+        </div>
+    {% endif %}
+    {# --- FIN DEL BLOQUE DE MENSAJES --- #}
+
+    <main>{% block content %} {% endblock %}</main>
+    {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
+    {% block javascript %}
+        <script>
+        // Espera a que toda la página se cargue
+        document.addEventListener('DOMContentLoaded', (event) => {
+            // Busca todos los elementos de mensaje
+            const messageWrapper = document.querySelector('.fixed.top-5.right-5');
+
+            if (messageWrapper) {
+                // Espera 5 segundos
+                setTimeout(() => {
+                    // Inicia una transición para hacerlo desaparecer
+                    messageWrapper.style.transition = 'opacity 0.5s ease';
+                    messageWrapper.style.opacity = '0';
+                    
+                    // Elimina el elemento por completo después de la transición
+                    setTimeout(() => messageWrapper.remove(), 500); 
+                }, 5000); // 5000 milisegundos = 5 segundos
+            }
+        });
+    </script>
+    {% endblock javascript %}
+    <!--Footer content-->
+    <!-- Replace this comment with your code  -->
+  </body>
+</html>
