@@ -6,6 +6,7 @@ from decimal import Decimal
 from datetime import datetime
 from celery import shared_task
 from django.conf import settings
+from django.utils import timezone
 from django.contrib.auth.models import User
 from allauth.socialaccount.models import SocialApp
 from google.oauth2.credentials import Credentials
@@ -14,6 +15,39 @@ from googleapiclient.errors import HttpError
 from PIL import Image
 import google.generativeai as genai
 from .models import registro_transacciones, TransaccionPendiente
+
+def validar_y_corregir_fecha(fecha_str: str) -> str:
+    """
+    Valida y corrige una fecha en formato string 'YYYY-MM-DD'.
+    Si el mes y el día parecen estar intercambiados (ej. mes > 12),
+    los intercambia para forzar el formato correcto.
+    """
+    try:
+        # Intentamos dividir la fecha en año, mes y día
+        parts = fecha_str.split('-')
+        if len(parts) != 3:
+            # Si no tiene 3 partes, no podemos procesarla, devolvemos la fecha de hoy
+            return timezone.now().date().isoformat()
+
+        year, part_2, part_3 = parts
+        
+        # Convertimos a enteros para la lógica de validación
+        month = int(part_2)
+        day = int(part_3)
+
+        # La lógica clave: si el "mes" es mayor que 12, es imposible.
+        # Esto significa que la IA lo invirtió.
+        if month > 12:
+            # Intercambiamos los valores y reconstruimos la fecha correcta
+            return f"{year}-{str(day).zfill(2)}-{str(month).zfill(2)}"
+        
+        # Si la fecha parece válida, la devolvemos como está
+        return fecha_str
+
+    except (ValueError, IndexError):
+        # Si ocurre cualquier error (ej. no se puede convertir a int),
+        # devolvemos la fecha de hoy como último recurso.
+        return timezone.now().date().isoformat()
 
 
 def get_folder_id(drive_service, folder_name: str, parent_folder_id: str = 'root'):
@@ -131,6 +165,9 @@ def procesar_tickets_drive(user_id, auth_token, refresh_token):
                     { "tipo_documento": "TRANSFERENCIA", "fecha": "2025-07-01", "establecimiento": "Juan Pérez", "descripcion_corta": "Renta Julio", "total": 7500.00, "confianza_extraccion": "ALTA" }
                     - **Ejemplo 3 (Ticket borroso):**
                     { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-06-28", "establecimiento": "Restaurante El Sol", "descripcion_corta": "Comida", "total": 450.00, "confianza_extraccion": "MEDIA" }
+                    
+                    ### NOTA IMPORTANTE:
+                    Verifica las fechas y montos con cuidado. Ya que has tenido errores ahí en el pasado. Recuerda que el formato de fecha es YYYY-MM-DD
 
                     Ahora, analiza la siguiente imagen:
             """

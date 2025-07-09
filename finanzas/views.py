@@ -157,7 +157,7 @@ def datos_gastos_categoria(request):
 
     # ¡AQUÍ ESTÁ LA NUEVA MAGIA DEL ORM!
     # Agrupamos las transacciones por 'categoria' y sumamos el 'monto' de cada una.
-    gastos_por_categoria = TransaccionesFormgastos_por_categoria = registro_transacciones.objects.filter(
+    gastos_por_categoria = TransaccionesForm.gastos_por_categoria = registro_transacciones.objects.filter(
         propietario=request.user,
         tipo='GASTO',
         fecha__year=year,
