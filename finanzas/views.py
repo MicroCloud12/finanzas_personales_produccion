@@ -214,27 +214,21 @@ def vista_procesamiento_automatico(request):
 @login_required
 def iniciar_procesamiento_drive(request):
     """
-    Esta vista ahora busca el token y se lo pasa directamente a la tarea de Celery.
+    Inicia el proceso de descubrimiento y procesamiento paralelo de tickets.
     """
     try:
-        # Buscamos el token aquí, en el proceso web que sabemos que lo puede ver.
         google_token = SocialToken.objects.get(account__user=request.user, account__provider='google')
-        
         token = google_token.token
-        refresh_token = google_token.token_secret # En allauth, el refresh token se guarda aquí.
+        refresh_token = google_token.token_secret
 
-        # Invocamos la tarea, pero ahora le pasamos los tokens como argumentos.
+        # Llamamos a la nueva tarea principal
         task = procesar_tickets_drive.delay(request.user.id, token, refresh_token)
-        messages.success(request, "¡Éxito! Se ha iniciado la sincronización de tus tickets. Esto puede tardar unos minutos.")
-        # Devolvemos el ID de la tarea en formato JSON.
+        
         return JsonResponse({"task_id": task.id}, status=202)
-    
-    except SocialToken.DoesNotExist:
-        messages.error(request, "Error: No se encontró una cuenta de Google vinculada. Por favor, conéctala de nuevo.")
-        pass
 
-    # Redirigimos al usuario para que no tenga que esperar.
-    return redirect('procesamiento_automatico')
+    except SocialToken.DoesNotExist:
+        return JsonResponse({"error": "No se encontró una cuenta de Google vinculada."}, status=400)
+
 
 @login_required
 def revisar_tickets(request):

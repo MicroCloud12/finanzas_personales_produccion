@@ -13,10 +13,10 @@
     </div>
 
     {# Contenedor de la tabla, con el mismo estilo #}
-    <div class="bg-white p-6 rounded-lg shadow-md overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
+    <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+        <table class="min-w-full leading-normal">
+            <thead>
+                <tr class="border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Descripción</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
@@ -48,6 +48,13 @@
                                 <option>Supermercado</option>
                                 <option>Entretenimiento</option>
                                 <option>Servicios</option>
+                                <option>Otro</option>
+                            </select>
+
+                            <select name="tipo" class="block w-40 border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 sm:text-sm">
+                                <option>Ingreso</option>
+                                <option>Gasto</option>
+                                <option>Transferencia</option>
                                 <option>Otro</option>
                             </select>
 

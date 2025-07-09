@@ -4,7 +4,7 @@ import json
 from io import BytesIO
 from decimal import Decimal
 from datetime import datetime
-from celery import shared_task
+from celery import shared_task, group
 from django.conf import settings
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -15,39 +15,6 @@ from googleapiclient.errors import HttpError
 from PIL import Image
 import google.generativeai as genai
 from .models import registro_transacciones, TransaccionPendiente
-
-def validar_y_corregir_fecha(fecha_str: str) -> str:
-    """
-    Valida y corrige una fecha en formato string 'YYYY-MM-DD'.
-    Si el mes y el día parecen estar intercambiados (ej. mes > 12),
-    los intercambia para forzar el formato correcto.
-    """
-    try:
-        # Intentamos dividir la fecha en año, mes y día
-        parts = fecha_str.split('-')
-        if len(parts) != 3:
-            # Si no tiene 3 partes, no podemos procesarla, devolvemos la fecha de hoy
-            return timezone.now().date().isoformat()
-
-        year, part_2, part_3 = parts
-        
-        # Convertimos a enteros para la lógica de validación
-        month = int(part_2)
-        day = int(part_3)
-
-        # La lógica clave: si el "mes" es mayor que 12, es imposible.
-        # Esto significa que la IA lo invirtió.
-        if month > 12:
-            # Intercambiamos los valores y reconstruimos la fecha correcta
-            return f"{year}-{str(day).zfill(2)}-{str(month).zfill(2)}"
-        
-        # Si la fecha parece válida, la devolvemos como está
-        return fecha_str
-
-    except (ValueError, IndexError):
-        # Si ocurre cualquier error (ej. no se puede convertir a int),
-        # devolvemos la fecha de hoy como último recurso.
-        return timezone.now().date().isoformat()
 
 
 def get_folder_id(drive_service, folder_name: str, parent_folder_id: str = 'root'):
@@ -84,7 +51,7 @@ def move_file_to_processed(drive_service, file_id, original_folder_id):
     except HttpError as error:
         print(f"Ocurrió un error al mover el archivo: {error}")
 
-
+'''
 @shared_task
 def procesar_tickets_drive(user_id, auth_token, refresh_token):
     print(f"--- Iniciando procesamiento de tickets para el usuario ID: {user_id} ---")
@@ -103,7 +70,7 @@ def procesar_tickets_drive(user_id, auth_token, refresh_token):
         print("Conexión con Google Drive API exitosa.")
 
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel("models/gemini-1.5-flash")
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
 
         folder_to_check = "Tickets de Compra" 
         folder_id = get_folder_id(drive_service, folder_to_check)
@@ -199,3 +166,129 @@ def procesar_tickets_drive(user_id, auth_token, refresh_token):
         return {'status': 'ERROR', 'message': str(e)}
 
     return f"Procesamiento finalizado para el usuario {user_id}."
+'''
+# --- TAREA SECUNDARIA: PROCESA UN ÚNICO TICKET ---
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def procesar_un_ticket(self, user_id, file_id, file_name, auth_token, refresh_token):
+    """
+    Procesa un único ticket utilizando la API de Gemini y lo guarda como pendiente.
+    """
+    try:
+        usuario = User.objects.get(id=user_id)
+        app = SocialApp.objects.get(provider='google')
+
+        creds = Credentials(
+            token=auth_token,
+            refresh_token=refresh_token,
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=app.client_id,
+            client_secret=app.secret
+        )
+        drive_service = build('drive', 'v3', credentials=creds)
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
+
+        request = drive_service.files().get_media(fileId=file_id)
+        file_content = BytesIO(request.execute())
+        image = Image.open(file_content)
+
+        # (El prompt de Gemini se mantiene igual)
+        prompt = """
+                Eres un asistente experto en contabilidad para un sistema de finanzas personales.
+                    Tu tarea es analizar la imagen de un documento y extraer la información clave con la máxima precisión.
+                    Devuelve SIEMPRE la respuesta en formato JSON, sin absolutamente ningún texto adicional.
+
+                    ### CONTEXTO:
+                    El usuario ha subido una imagen de un ticket de compra o un comprobante de transferencia.
+                    Necesito que identifiques el tipo de documento y extraigas los siguientes campos:
+
+                    ### FORMATO DE SALIDA ESTRICTO (JSON):
+                    {
+                    "tipo_documento": "(TICKET_COMPRA|TRANSFERENCIA|OTRO)",
+                    "fecha": "YYYY-MM-DD",
+                    "establecimiento": "Nombre del comercio o beneficiario",
+                    "descripcion_corta": "Un resumen breve del gasto (ej. 'Renta depto', 'Supermercado', 'Cena con amigos')",
+                    "total": 0.00,
+                    "confianza_extraccion": "(ALTA|MEDIA|BAJA)"
+                    }
+                    
+                    ### REGLAS DE EXTRACCIÓN:
+                    1.  **fecha**: Busca la fecha principal. Si no la encuentras, usa la fecha actual. Formato YYYY-MM-DD.
+                    2.  **establecimiento**: El nombre principal de la tienda (ej. "Walmart", "Starbucks", "CFE"). Si es una transferencia, el nombre del beneficiario.
+                    3.  **descripcion_corta**: Si es un ticket con muchos artículos, pon "Supermercado" o "Compra tienda". Si es una transferencia, usa el concepto.
+                    4.  **total**: El monto TOTAL final. Debe ser un número (float), sin el símbolo de moneda.
+                    5.  **confianza_extraccion**: Evalúa tu propia certeza.
+                        - **ALTA**: Si la imagen es clara y todos los campos son obvios.
+                        - **MEDIA**: Si la imagen es un poco borrosa o un campo es ambiguo.
+                        - **BAJA**: Si la imagen es muy difícil de leer o faltan datos clave.
+
+                    ### EJEMPLOS:
+                    - **Ejemplo 1 (Ticket claro):**
+                    { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-07-03", "establecimiento": "La Comer", "descripcion_corta": "Supermercado", "total": 854.50, "confianza_extraccion": "ALTA" }
+                    - **Ejemplo 2 (Transferencia):**
+                    { "tipo_documento": "TRANSFERENCIA", "fecha": "2025-07-01", "establecimiento": "Juan Pérez", "descripcion_corta": "Renta Julio", "total": 7500.00, "confianza_extraccion": "ALTA" }
+                    - **Ejemplo 3 (Ticket borroso):**
+                    { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-06-28", "establecimiento": "Restaurante El Sol", "descripcion_corta": "Comida", "total": 450.00, "confianza_extraccion": "MEDIA" }
+                    
+                    ### NOTA IMPORTANTE:
+                    Verifica las fechas y montos con cuidado. Ya que has tenido errores ahí en el pasado. Recuerda que el formato de fecha es YYYY-MM-DD
+
+                    Ahora, analiza la siguiente imagen:
+                """
+
+        response = model.generate_content([prompt, image])
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
+        data = json.loads(cleaned_response)
+
+        TransaccionPendiente.objects.create(
+            propietario=usuario,
+            datos_json=data,
+            estado='pendiente'
+        )
+        return {'status': 'SUCCESS', 'file_name': file_name}
+
+    except Exception as e:
+        self.retry(exc=e)
+        return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
+
+# --- TAREA PRINCIPAL: DESCUBRE TICKETS Y DELEGA EL PROCESAMIENTO ---
+@shared_task
+def procesar_tickets_drive(user_id, auth_token, refresh_token):
+    """
+    Obtiene la lista de tickets de Google Drive y lanza tareas paralelas para procesarlos.
+    """
+    try:
+        app = SocialApp.objects.get(provider='google')
+        creds = Credentials(
+            token=auth_token,
+            refresh_token=refresh_token,
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=app.client_id,
+            client_secret=app.secret
+        )
+        drive_service = build('drive', 'v3', credentials=creds)
+
+        folder_id = get_folder_id(drive_service, "Tickets de Compra")
+        if not folder_id:
+            return {'status': 'NO_FOLDER', 'message': 'No se encontró la carpeta "Tickets de Compra".'}
+
+        query = f"'{folder_id}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed=false"
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+        items = results.get('files', [])
+
+        if not items:
+            return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
+
+        # Creamos un grupo de tareas para ejecutarlas en paralelo
+        job = group(
+            procesar_un_ticket.s(user_id, item['id'], item['name'], auth_token, refresh_token)
+            for item in items
+        )
+        # Lanzamos el grupo de tareas
+        result_group = job.apply_async()
+        result_group.save() # Guardamos el grupo para poder consultar su estado
+
+        return {'status': 'SUCCESS', 'task_group_id': result_group.id, 'processed_count': len(items)}
+
+    except Exception as e:
+        return {'status': 'ERROR', 'message': str(e)}
