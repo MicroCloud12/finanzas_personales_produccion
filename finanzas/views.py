@@ -71,13 +71,13 @@ def vista_dashboard(request):
     ahorro_total = transacciones.filter(tipo='INGRESO').filter(categoria='Ahorro').filter(cuenta_origen = 'Cuenta Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
     proviciones = transacciones.filter(tipo='GASTO').exclude(categoria='Ahorro').filter(cuenta_origen = 'Cuenta Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
     transferencias = transacciones.filter(tipo='TRANSFERENCIA').exclude(categoria='Ahorro').exclude(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-
+    '''
     # --- Registro de datos de depuración ---
     logger.debug("--- INICIANDO DEPURACIÓN DE VALORES FINALES ---")
     logger.debug("Valor de 'ingresos': %s (Tipo: %s)", ingresos, type(ingresos))
     logger.debug("Valor de 'gastos': %s (Tipo: %s)", gastos, type(gastos))
     logger.debug("---------------------------------------------")
-    
+    '''
     # Esta es la línea que da el error
     balance = ingresos - gastos
     disponible_banco = ingresos - gastos - transferencias
