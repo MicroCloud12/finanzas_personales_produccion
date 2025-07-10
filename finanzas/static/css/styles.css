@@ -26,3 +26,19 @@
         transform: translateY(0);
     }
 }
+
+/* ... al final de tu archivo ... */
+
+/* --- Estilos para el Blob Interactivo --- */
+@layer utilities {
+    .hero-blob {
+        transition: transform 0.2s ease-out;
+    }
+}
+
+/* --- Estilos para el efecto Glassmorphism --- */
+@layer components {
+    .glass-card {
+        @apply bg-white/50 dark:bg-gray-900/50 backdrop-blur-lg border border-white/20 rounded-2xl shadow-lg hover:shadow-2xl hover:-translate-y-2;
+    }
+}

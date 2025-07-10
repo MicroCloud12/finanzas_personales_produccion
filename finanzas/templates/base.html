@@ -34,29 +34,17 @@
       onload="this.rel = 'stylesheet'">
   </head>
 
-  <body>
-    <!--Header content-->
-    {% include 'partials/_header.html' %}
-    {# --- AÑADE ESTE BLOQUE PARA MOSTRAR MENSAJES --- #}
-    <hr>
-    {% if messages %}
-        <div class="fixed top-5 right-5 z-50">
-        {% for message in messages %}
-            <div class="mb-4 rounded-lg px-6 py-5 text-base shadow-lg 
-                        {% if message.tags == 'success' %} bg-green-100 text-green-700 
-                        {% elif message.tags == 'error' %} bg-red-100 text-red-700 
-                        {% else %} bg-blue-100 text-blue-700 
-                        {% endif %}" 
-                 role="alert">
-                {{ message }}
-            </div>
-        {% endfor %}
-        </div>
-    {% endif %}
-    {# --- FIN DEL BLOQUE DE MENSAJES --- #}
+  <body class="bg-gray-50">
 
-    <main>{% block content %} {% endblock %}</main>
-    {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
+    {% block header %}
+        {% include 'partials/_header.html' %}
+    {% endblock header %}
+
+    <main>
+        {% block content %}
+        {% endblock content %}
+    </main>
+          {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
     {% block javascript %}
         <script>
         // Espera a que toda la página se cargue
@@ -78,7 +66,5 @@
         });
     </script>
     {% endblock javascript %}
-    <!--Footer content-->
-    <!-- Replace this comment with your code  -->
-  </body>
+    </body>
 </html>
