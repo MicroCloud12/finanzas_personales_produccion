@@ -19,5 +19,9 @@ urlpatterns = [
     path('revisar-tickets/', views.revisar_tickets, name='revisar_tickets'),
     path('aprobar-ticket/<int:ticket_id>/', views.aprobar_ticket, name='aprobar_ticket'),
     path('rechazar-ticket/<int:ticket_id>/', views.rechazar_ticket, name='rechazar_ticket'),
-    path('task-status/<str:task_id>/', views.get_task_status, name='get_task_status'),
+    # 1. Una URL solo para obtener el resultado de la tarea inicial
+    path('resultado-tarea-inicial/<str:task_id>/', views.get_initial_task_result, name='get_initial_task_result'),
+    # 2. Una URL solo para monitorear el progreso del grupo
+    path('estado-grupo/<str:group_id>/', views.get_group_status, name='get_group_status'),
+    path('revisar_tickets/', views.revisar_tickets, name='revisar_tickets'),
 ]

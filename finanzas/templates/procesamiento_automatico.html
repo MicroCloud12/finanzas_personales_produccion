@@ -38,23 +38,25 @@
             </p>
 
             {% if user.socialaccount_set.all %}
-                <button id="sync-button" data-url="{% url 'procesar_drive' %}" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md shadow-lg">
-                    Sincronizar Tickets
-                </button>
+                <div class="text-center">
+                    <button id="start-processing-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                        Sincronizar Tickets desde Drive
+                    </button>
+                </div>
             {% else %}
                  <button class="w-full bg-gray-400 text-white font-bold py-2 px-4 rounded-md cursor-not-allowed" disabled>
                     Sincronizar Tickets
                 </button>
             {% endif %}
-
-            <div id="progress-wrapper" class="hidden mt-4">
-                <p id="progress-text" class="text-center text-sm text-gray-700 mb-2">Procesando...</p>
-                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+            <div id="progress-container" class="mt-8 hidden">
+                <p id="progress-text" class="text-center text-gray-700 mb-2">Iniciando...</p>
+                <div class="w-full bg-gray-200 rounded-full">
+                    <div id="progress-bar" class="bg-blue-500 text-xs font-medium text-blue-100 text-center p-0.5 leading-none rounded-full" style="width: 0%">
+                        0%
+                    </div>
                 </div>
             </div>
         </div>
-
     </div>
 </div>
 {% endblock %}
@@ -62,89 +64,99 @@
 {% block javascript %}
 {# El código JavaScript para la barra de progreso se queda exactamente igual #}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const syncButton = document.getElementById('sync-button');
-    const progressWrapper = document.getElementById('progress-wrapper');
-    const progressBar = document.getElementById('progress-bar');
+document.addEventListener('DOMContentLoaded', function () {
+    const startBtn = document.getElementById('start-processing-btn');
+    const progressContainer = document.getElementById('progress-container');
     const progressText = document.getElementById('progress-text');
+    const progressBar = document.getElementById('progress-bar');
+    let pollingInterval;
 
-    if (syncButton) {
-        syncButton.addEventListener('click', function() {
-            syncButton.disabled = true;
-            syncButton.textContent = 'Procesando...';
-            progressWrapper.classList.remove('hidden');
-            progressBar.style.width = '10%';
+    startBtn.addEventListener('click', async function() {
+        console.log("Botón presionado.");
+        
+        startBtn.disabled = true;
+        progressContainer.classList.remove('hidden');
+        updateProgress(0, "Iniciando...", 'bg-blue-500');
 
-            fetch(this.dataset.url)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.task_id) {
-                        pollTaskStatus(data.task_id);
-                    } else {
-                        throw new Error(data.error || 'No se pudo iniciar la tarea.');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    progressText.textContent = 'Error al iniciar. Intenta de nuevo.';
-                    progressBar.classList.add('bg-red-500');
-                    syncButton.disabled = false;
-                    syncButton.textContent = 'Sincronizar Tickets';
-                });
-        });
+        try {
+            // 1. Iniciar el proceso
+            const initialResponse = await fetch("{% url 'procesar_drive' %}");
+            const initialData = await initialResponse.json();
+            const initialTaskId = initialData.task_id;
+            console.log(`Tarea inicial ID: ${initialTaskId}`);
+
+            // 2. Esperar a que la tarea inicial nos dé el ID del grupo
+            updateProgress(15, "Buscando tickets...");
+            const groupId = await waitForGroupId(initialTaskId);
+            console.log(`Grupo de tareas ID: ${groupId}`);
+            
+            // 3. Monitorear el progreso del grupo
+            updateProgress(25, "Procesando tickets...");
+            await monitorGroupProgress(groupId);
+            
+            // 4. Finalizar
+            updateProgress(100, "¡Proceso completado!", 'bg-green-500');
+            setTimeout(() => {
+                window.location.href = "{% url 'revisar_tickets' %}";
+            }, 1500);
+
+        } catch (error) {
+            handleError(error.message);
+        }
+    });
+
+    async function waitForGroupId(taskId) {
+        while (true) {
+            await sleep(2500);
+            console.log(`Consultando tarea inicial: ${taskId}`);
+            
+            const response = await fetch(`/resultado-tarea-inicial/${taskId}/`);
+            const data = await response.json();
+
+            if (data.status === 'SUCCESS') {
+                const result = data.result;
+                if (result.status === 'STARTED') return result.task_group_id;
+                if (result.status === 'NO_FILES') throw new Error("No se encontraron nuevos tickets.");
+                throw new Error("Respuesta inesperada de la tarea inicial.");
+            } else if (data.status === 'FAILURE') {
+                throw new Error(`Tarea inicial falló: ${data.info}`);
+            }
+            // Si el estado es PENDING, el bucle continúa
+        }
     }
 
-    function pollTaskStatus(taskId) {
-        const interval = setInterval(() => {
-            fetch(`/task-status/${taskId}/`)
-                .then(response => response.json())
-                .then(data => {
-                    let currentWidth = parseFloat(progressBar.style.width) || 0;
-                    if (currentWidth < 90) {
-                        progressBar.style.width = (currentWidth + 5) + '%';
-                    }
+    async function monitorGroupProgress(groupId) {
+        while (true) {
+            await sleep(2500);
+            console.log(`Consultando grupo: ${groupId}`);
+            
+            const response = await fetch(`/estado-grupo/${groupId}/`);
+            const data = await response.json();
 
-                    if (data.task_status === 'SUCCESS') {
-                        clearInterval(interval);
-                        
-                        // --- LÓGICA MEJORADA ---
-                        const result = data.task_result;
-                        if (result.status === 'SUCCESS' && result.processed_count > 0) {
-                            // Caso de éxito real
-                            progressBar.style.width = '100%';
-                            progressText.textContent = `¡Éxito! Se procesaron ${result.processed_count} tickets. Redirigiendo...`;
-                            progressBar.classList.remove('bg-blue-600');
-                            progressBar.classList.add('bg-green-500');
-                            window.location.href = "{% url 'revisar_tickets' %}";
+            if (data.status === 'COMPLETED') {
+                return; // Termina el bucle
+            } else if (data.status === 'PROGRESS') {
+                updateProgress(data.progress, `Procesando... ${data.completed} de ${data.total} lotes listos.`);
+            } else if (data.status === 'FAILURE') {
+                 throw new Error(`El procesamiento del grupo falló: ${data.info}`);
+            }
+        }
+    }
 
-                        } else if (result.status === 'NO_FILES') {
-                            // Caso: No se encontraron archivos
-                            progressText.textContent = 'No se encontraron tickets nuevos para procesar.';
-                            progressBar.style.width = '0%';
-                            progressBar.classList.remove('bg-blue-600');
-                            progressBar.classList.add('bg-yellow-500'); // Un color de advertencia
-                            syncButton.disabled = false;
-                            syncButton.textContent = 'Volver a Sincronizar';
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-                        } else {
-                            // Caso: Éxito, pero 0 tickets procesados (o algún otro estado)
-                            progressText.textContent = 'El proceso finalizó pero no se registró ningún ticket nuevo.';
-                            progressBar.style.width = '0%';
-                             syncButton.disabled = false;
-                            syncButton.textContent = 'Volver a Sincronizar';
-                        }
-                        // --- FIN DE LÓGICA MEJORADA ---
+    function updateProgress(percentage, text, color = 'bg-blue-500') {
+        progressBar.style.width = `${percentage}%`;
+        progressBar.textContent = `${percentage}%`;
+        progressBar.className = `text-xs font-medium text-blue-100 text-center p-0.5 leading-none rounded-full ${color}`;
+        progressText.textContent = text;
+    }
 
-                    } else if (data.task_status === 'FAILURE') {
-                        // La tarea falló
-                        clearInterval(interval);
-                        progressText.textContent = 'Ocurrió un error durante el procesamiento.';
-                        progressBar.classList.add('bg-red-500');
-                        syncButton.disabled = false;
-                        syncButton.textContent = 'Sincronizar Tickets de Drive';
-                    }
-                });
-        }, 2000);
+    function handleError(message) {
+        if (pollingInterval) clearInterval(pollingInterval);
+        console.error("Error:", message);
+        updateProgress(100, `Error: ${message}`, 'bg-red-500');
+        startBtn.disabled = false;
     }
 });
 </script>
