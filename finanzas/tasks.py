@@ -3,6 +3,8 @@ from celery import shared_task, group
 from django.contrib.auth.models import User
 from PIL import Image
 from .services import GoogleDriveService, GeminiService, TransactionService
+import logging
+
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
@@ -11,6 +13,7 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
     Utiliza los servicios para abstraer la lógica.
     """
     try:
+        logger = logging.getLogger(__name__)
         user = User.objects.get(id=user_id)
         
         # 1. Usar servicios
@@ -24,7 +27,11 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
 
         # 3. Extraer datos con Gemini
         extracted_data = gemini_service.extract_data_from_image(image)
-
+        # --- DEPURACIÓN CON PRINT (VERSIÓN FINAL) ---
+        print("--- INICIANDO DEPURACIÓN DE VALORES FINALES ---")
+        print(f"Valor de 'ingresos': {extracted_data}")
+        print("---------------------------------------------")
+# ---------------------------------------------------
         # 4. Crear transacción pendiente
         transaction_service.create_pending_transaction(user, extracted_data)
 

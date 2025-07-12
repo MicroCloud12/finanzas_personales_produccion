@@ -26,7 +26,7 @@ NPM_BIN_PATH = r"C:\Program Files\nodejs\npm.cmd"
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "True").lower() in ["1", "true", "yes"]
+DEBUG = True
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -200,3 +200,43 @@ ALLOWED_HOSTS = ['*']
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_STORE_TOKENS = True
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# tu_proyecto/settings.py
+
+# ... (al final del archivo)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'debug.log', # El archivo se creará en la raíz de tu proyecto
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        # Este es el logger para tu app 'finanzas'. ¡Puedes cambiar el nombre!
+        'finanzas': {
+            'handlers': ['console', 'file'], # Envía los logs a la consola y al archivo
+            'level': 'DEBUG', # Captura desde el nivel más bajo (DEBUG)
+            'propagate': False,
+        },
+    },
+}

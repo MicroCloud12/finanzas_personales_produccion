@@ -48,7 +48,6 @@ def aprobar_ticket(request, ticket_id):
         cuenta_seleccionada = request.POST.get('cuenta_origen')
         categoria_seleccionada = request.POST.get('categoria')
         tipo_seleccionado = request.POST.get('tipo', 'GASTO') # Valor por defecto 'GASTO'
-
         # Usamos el servicio para manejar la aprobación
         TransactionService.approve_pending_transaction(
             ticket_id=ticket_id,
@@ -228,7 +227,8 @@ def get_group_status(request, group_id):
             })
     except Exception as e:
         logger.error(f"Error en get_group_status: {e}")
-        return JsonResponse({"status": "FAILURE", "info": str(e)}, status=500)    
+        return JsonResponse({"status": "FAILURE", "info": str(e)}, status=500)
+     
 @login_required
 def rechazar_ticket(request, ticket_id):
     ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=request.user)

@@ -78,36 +78,57 @@ class GeminiService:
         # --- CAMBIO EN EL PROMPT ---
         # Reforzamos la instrucción de la fecha.
         self.prompt = """
-             Eres un asistente experto en contabilidad para un sistema de finanzas personales.
+            Eres un asistente experto en contabilidad para un sistema de finanzas personales.
             Tu tarea es analizar la imagen de un documento y extraer la información clave con la máxima precisión.
-            Devuelve SIEMPRE la respuesta en formato JSON, sin absolutamente ningún texto adicional ni markdown.
+            Devuelve SIEMPRE la respuesta en formato JSON, sin absolutamente ningún texto adicional.
+
+            ### CONTEXTO:
+            El usuario ha subido una imagen de un ticket de compra o un comprobante de transferencia.
+            Necesito que identifiques el tipo de documento y extraigas los siguientes campos:
 
             ### FORMATO DE SALIDA ESTRICTO (JSON):
             {
-            "tipo_documento": "(TICKET_COMPRA|TRANSFERENCIA|OTRO)",
-            "fecha": "YYYY-MM-DD",
-            "establecimiento": "Nombre del comercio o beneficiario",
-            "descripcion_corta": "Un resumen breve del gasto (ej. 'Renta depto', 'Supermercado', 'Cena con amigos')",
-            "total": 0.00,
-            "confianza_extraccion": "(ALTA|MEDIA|BAJA)"
+              "tipo_documento": "(TICKET_COMPRA|TRANSFERENCIA|OTRO)",
+              "fecha": "YYYY-MM-DD",
+              "establecimiento": "Nombre del comercio o beneficiario",
+              "descripcion_corta": "Un resumen breve del gasto (ej. 'Renta depto', 'Supermercado', 'Cena con amigos')",
+              "total": 0.00,
+              "confianza_extraccion": "(ALTA|MEDIA|BAJA)"
             }
             
             ### REGLAS DE EXTRACCIÓN:
-            1.  **fecha**: Busca la fecha principal del documento. El formato debe ser estrictamente YYYY-MM-DD.
-                - **VALIDACIÓN CRÍTICA**: Si la fecha que encuentras es de un año pasado (ej. el año actual es 2025 y encuentras 2023 o 2024), es un error de lectura. En ese caso, o si no encuentras una fecha clara, DEBES USAR LA FECHA ACTUAL.
-            2.  **establecimiento**: El nombre principal de la tienda (ej. "Walmart", "Starbucks", "CFE").
-            3.  **descripcion_corta**: Un resumen breve como "Supermercado" o "Compra tienda".
-            4.  **total**: El monto TOTAL final, como un número (float).
-            5.  **confianza_extraccion**: Evalúa tu propia certeza (ALTA, MEDIA, BAJA).
+            1.  **fecha**: Busca la fecha principal. Si no la encuentras, usa la fecha actual. Formato YYYY-MM-DD.
+            2.  **establecimiento**: El nombre principal de la tienda (ej. "Walmart", "Starbucks", "CFE"). Si es una transferencia, el nombre del beneficiario.
+            3.  **descripcion_corta**: Si es un ticket con muchos artículos, pon "Supermercado" o "Compra tienda". Si es una transferencia, usa el concepto.
+            4.  **total**: El monto TOTAL final. Debe ser un número (float), sin el símbolo de moneda.
+            5.  **confianza_extraccion**: Evalúa tu propia certeza.
+                - **ALTA**: Si la imagen es clara y todos los campos son obvios.
+                - **MEDIA**: Si la imagen es un poco borrosa o un campo es ambiguo.
+                - **BAJA**: Si la imagen es muy difícil de leer o faltan datos clave.
 
-            Analiza la siguiente imagen:
+            ### EJEMPLOS:
+            - **Ejemplo 1 (Ticket claro):**
+              { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-07-03", "establecimiento": "La Comer", "descripcion_corta": "Supermercado", "total": 854.50, "confianza_extraccion": "ALTA" }
+            - **Ejemplo 2 (Transferencia):**
+              { "tipo_documento": "TRANSFERENCIA", "fecha": "2025-07-01", "establecimiento": "N/A", "descripcion_corta": "Digitt002", "total": 7500.00, "confianza_extraccion": "ALTA" }
+            - **Ejemplo 3 (Ticket borroso):**
+              { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-06-28", "establecimiento": "Restaurante El Sol", "descripcion_corta": "Comida", "total": 450.00, "confianza_extraccion": "MEDIA" }
+
+            ### Nota importante:
+            -Quiero que revices bien si es ticket o transferencia, ya que la extracción de datos es diferente. y lo has estado haciendo mal.
+            Por ejemplo, en las transferencias estas poniendo el nombre del usuario con el nombre del banco, y no es correcto.
+            Lo correcto seria que pongas el concepto de la transferencia, que es lo que el usuario pone en la app de su banco. Y eso normalmente lo pone tal cual en la transferencia.
+            Ahora, analiza la siguiente imagen:
         """
 
     def extract_data_from_image(self, image: Image.Image) -> dict:
         # ... (el resto de la función no cambia)
         response = self.model.generate_content([self.prompt, image])
+        print(f"Respuesta de Gemini: {response.text}")
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
+        
         try:
+            print(f"Respuesta de Gemini: {json.loads(cleaned_response)}")
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
             print(f"Error: La respuesta de Gemini no es un JSON válido: {cleaned_response}")
@@ -139,7 +160,7 @@ class TransactionService:
         try:
             ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=user)
             datos = ticket.datos_json
-
+            print(f"Aprobando ticket: {ticket_id} con datos: {datos}")
             # --- CAMBIO IMPORTANTE AQUÍ ---
             # Usamos nuestra función segura para procesar la fecha.
             # Ya no hay riesgo de que el programa se rompa por un formato incorrecto.
@@ -148,7 +169,7 @@ class TransactionService:
             registro_transacciones.objects.create(
                 propietario=user,
                 fecha=fecha_segura, # Usamos la fecha limpia y validada
-                descripcion=datos.get("descripcion_corta", datos.get("establecimiento", "Sin descripción")),
+                descripcion=datos.get("descripcion_corta"),
                 categoria=categoria,
                 monto=Decimal(str(datos.get("total", 0.0))), # Convertir a string primero para mayor precisión con Decimal
                 tipo=tipo_transaccion.upper(),
