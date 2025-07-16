@@ -13,7 +13,6 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
     Utiliza los servicios para abstraer la lógica.
     """
     try:
-        logger = logging.getLogger(__name__)
         user = User.objects.get(id=user_id)
         
         # 1. Usar servicios
@@ -27,11 +26,7 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
 
         # 3. Extraer datos con Gemini
         extracted_data = gemini_service.extract_data_from_image(image)
-        # --- DEPURACIÓN CON PRINT (VERSIÓN FINAL) ---
-        print("--- INICIANDO DEPURACIÓN DE VALORES FINALES ---")
-        print(f"Valor de 'ingresos': {extracted_data}")
-        print("---------------------------------------------")
-# ---------------------------------------------------
+
         # 4. Crear transacción pendiente
         transaction_service.create_pending_transaction(user, extracted_data)
 
@@ -48,10 +43,6 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
         # Para otros errores, reintentar
         self.retry(exc=e)
         return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
-
-
-# finanzas/tasks.py
-# ... (process_single_ticket se mantiene igual) ...
 
 @shared_task
 def process_drive_tickets(user_id: int):

@@ -28,12 +28,18 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    h.strip()
-    for h in os.environ.get("ALLOWED_HOSTS", "").split(",")
-    if h.strip()
-]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Redirige todas las peticiones HTTP a HTTPS.
+SECURE_SSL_REDIRECT = True
+
+# Asegura que las cookies de sesión solo se envíen por HTTPS.
+SESSION_COOKIE_SECURE = True
+
+# Asegura que la cookie CSRF solo se envíe por HTTPS.
+CSRF_COOKIE_SECURE = True
 
 # Application definition
 
@@ -59,6 +65,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -136,6 +143,24 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# La URL para acceder a los archivos estáticos en el navegador
+
+# El directorio donde `collectstatic` reunirá todos los archivos
+# para la producción. No necesita estar en .env.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Los directorios donde Django buscará tus archivos estáticos
+# (CSS, JS, imágenes de tu proyecto)
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
+# Configuración de almacenamiento para WhiteNoise (optimiza el caché).
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -157,8 +182,8 @@ LOGOUT_REDIRECT_URL = 'home'
 # config/settings.py
 
 # --- CELERY SETTINGS ---
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_BROKER_URL = 'redis://redis:6379/0'
+CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -196,11 +221,11 @@ SOCIALACCOUNT_PROVIDERS = {
         }
     }
 }
-ALLOWED_HOSTS = ['*']
+
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_STORE_TOKENS = True
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS").split(',')
 # tu_proyecto/settings.py
 
 # ... (al final del archivo)

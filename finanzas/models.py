@@ -55,3 +55,20 @@ class TransaccionPendiente(models.Model):
         # Intenta mostrar una descripción o el total para que sea fácil de leer en el admin
         descripcion = self.datos_json.get('descripcion_corta')
         return f"Pendiente de {self.propietario.username} - {descripcion}"
+    
+class inversiones(models.Model):
+    Propetiario = models.ForeignKey(User, on_delete=models.CASCADE)
+    Fecha_Compra = models.DateField()
+    Emisora_Ticker = models.CharField(max_length=10)
+    Nombre_Empresa = models.CharField(max_length=100)
+    Cantidad_Títulos = models.PositiveIntegerField()
+    Precio_Compra_Título = models.DecimalField(max_digits=65, decimal_places=3)
+    Costo_Total_Adquisición = models.DecimalField(max_digits=65, decimal_places=3)
+    Tipo_Cambio_compra = models.DecimalField(max_digits=65, decimal_places=3, null=True, blank=True)
+    Precio_Actual_Título = models.DecimalField(max_digits=65, decimal_places=3)
+    Valor_Actual_Mercado = models.DecimalField(max_digits=65, decimal_places=3)
+    Ganancia_Pérdida_No_Realizada = models.DecimalField(max_digits=65, decimal_places=3)
+    Ganancia_Pérdida = models.DecimalField(max_digits=65, decimal_places=3, null=True, blank=True)
+
+    def __str__(self):
+       

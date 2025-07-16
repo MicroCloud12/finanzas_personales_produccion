@@ -3,18 +3,18 @@ import json
 from io import BytesIO
 from PIL import Image
 from decimal import Decimal
-
 from django.conf import settings
 from allauth.socialaccount.models import SocialApp, SocialToken
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.generativeai as genai
-
+import mercadopago
 # ¡Importamos nuestra nueva función de utilidad!
 from .utils import parse_date_safely
 from .models import registro_transacciones, TransaccionPendiente, User
-
+import os # Asegúrate de que User sea el modelo de usuario correcto
+import requests
 
 class GoogleDriveService:
     # ... (esta clase no cambia)
@@ -118,13 +118,13 @@ class GeminiService:
             -Quiero que revices bien si es ticket o transferencia, ya que la extracción de datos es diferente. y lo has estado haciendo mal.
             Por ejemplo, en las transferencias estas poniendo el nombre del usuario con el nombre del banco, y no es correcto.
             Lo correcto seria que pongas el concepto de la transferencia, que es lo que el usuario pone en la app de su banco. Y eso normalmente lo pone tal cual en la transferencia.
+            -En caso de que el Establecimiento sea Express, sustituyelo por DIDI e igual en caso de que sea Tickets ponlos en mayusculas.
             Ahora, analiza la siguiente imagen:
         """
 
     def extract_data_from_image(self, image: Image.Image) -> dict:
         # ... (el resto de la función no cambia)
         response = self.model.generate_content([self.prompt, image])
-        print(f"Respuesta de Gemini: {response.text}")
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
         
         try:
@@ -161,6 +161,16 @@ class TransactionService:
             ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=user)
             datos = ticket.datos_json
             print(f"Aprobando ticket: {ticket_id} con datos: {datos}")
+            tipo_documento = datos.get("tipo_documento")
+            
+            # Por defecto, usamos la descripción corta
+            descripcion_final = datos.get("descripcion_corta", "Sin descripción")
+            
+            # Si es un ticket de compra, sobrescribimos con el nombre del establecimiento
+            if tipo_documento == 'TICKET_COMPRA':
+                descripcion_final = datos.get("establecimiento", "Compra sin establecimiento")
+            
+            # --- FIN DE LA LÓGICA ---
             # --- CAMBIO IMPORTANTE AQUÍ ---
             # Usamos nuestra función segura para procesar la fecha.
             # Ya no hay riesgo de que el programa se rompa por un formato incorrecto.
@@ -169,7 +179,8 @@ class TransactionService:
             registro_transacciones.objects.create(
                 propietario=user,
                 fecha=fecha_segura, # Usamos la fecha limpia y validada
-                descripcion=datos.get("descripcion_corta"),
+                #descripcion=datos.get("descripcion_corta", datos.get("establecimiento", "Sin descripción")),
+                descripcion=descripcion_final,
                 categoria=categoria,
                 monto=Decimal(str(datos.get("total", 0.0))), # Convertir a string primero para mayor precisión con Decimal
                 tipo=tipo_transaccion.upper(),
@@ -181,3 +192,42 @@ class TransactionService:
             return ticket
         except TransaccionPendiente.DoesNotExist:
             return None
+        
+class MercadoPagoService:
+    """
+    Servicio para manejar pagos con Mercado Pago.
+    """
+    def __init__(self):
+        self.client = mercadopago.SDK(os.getenv('MERCADOPAGO_ACCESS_TOKEN'))
+
+    def create_preference(self, items: list[dict], payer_email: str) -> dict:
+        items = [
+            {
+                "title": "Suscripción Premium",
+                "quantity": 1,
+                "unit_price": 500.00,  # Precio del producto
+                "currency_id": "MXN",  # Moneda (pesos mexicanos)
+            }
+        ]
+
+        # Define las URLs a las que será redirigido el usuario
+        back_urls = {
+            "success": requests.build_absolute_uri('/pago/exitoso/'),
+            "failure": requests.build_absolute_uri('/pago/fallido/'),
+            "pending": requests.build_absolute_uri('/pago/pendiente/'),
+        }
+
+        # Crea la preferencia de pago
+        preference_data = {
+            "items": items,
+            "back_urls": back_urls,
+            "auto_return": "approved",  # Redirige automáticamente solo si el pago es aprobado
+        }
+
+        try:
+            preference_response = sdk.preference().create(preference_data)
+            preference = preference_response["response"]
+            # Retornamos el ID de la preferencia para usarlo en el frontend
+            return JsonResponse({'preference_id': preference['id']})
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
