@@ -257,17 +257,27 @@ def crear_inversion(request):
 
             price_service = StockPriceService()
             ticker = form.cleaned_data.get('emisora_ticker').upper()
-            precio_actual = price_service.get_current_price(ticker)
             
-            nueva_inversion.precio_actual_titulo = precio_actual if precio_actual else nueva_inversion.precio_actual_titulo
+            # Obtenemos el precio como float desde el servicio
+            precio_actual_float = price_service.get_current_price(ticker)
             
-            nueva_inversion.save()
+            # --- PASO 2: AQUÍ ESTÁ LA CORRECCIÓN ---
+            if precio_actual_float is not None:
+                # Convertimos el float a un Decimal antes de asignarlo al modelo
+                # Usamos str() en el medio, es la forma más segura de evitar errores de precisión.
+                nueva_inversion.precio_actual_titulo = Decimal(str(precio_actual_float))
+            else:
+                # Si la API falla, usamos el precio de compra como respaldo
+                nueva_inversion.precio_actual_titulo = nueva_inversion.precio_compra_titulo
+            
+            nueva_inversion.save() # Ahora la multiplicación será entre dos Decimales
             messages.success(request, f"Inversión en {ticker} guardada con éxito.")
             return redirect('lista_inversiones')
     else:
         form = InversionForm()
     
     context = {'form': form}
+    # Asegúrate de que el path a tu template es correcto
     return render(request, 'crear_inversion.html', context)
 
 @login_required

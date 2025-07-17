@@ -35,16 +35,16 @@
                 {% for inv in inversiones %}
                     <tr class="border-b border-gray-200 hover:bg-gray-50">
                         <td class="px-5 py-5 bg-white text-sm">
-                            <p class="text-gray-900 font-bold whitespace-no-wrap">{{ inv.Emisora_Ticker }}</p>
-                            <p class="text-gray-600 whitespace-no-wrap">{{ inv.Nombre_Empresa }}</p>
+                            <p class="text-gray-900 font-bold whitespace-no-wrap">{{ inv.emisora_ticker }}</p>
+                            <p class="text-gray-600 whitespace-no-wrap">{{ inv.nombre_activo }}</p>
                         </td>
-                        <td class="px-5 py-5 bg-white text-sm">{{ inv.Cantidad_Títulos }}</td>
-                        <td class="px-5 py-5 bg-white text-sm">${{ inv.Precio_Compra_Título|floatformat:2|intcomma }}</td>
-                        <td class="px-5 py-5 bg-white text-sm">${{ inv.Costo_Total_Adquisición|floatformat:2|intcomma }}</td>
-                        <td class="px-5 py-5 bg-white text-sm font-semibold">${{ inv.Precio_Actual_Título|floatformat:2|intcomma }}</td>
-                        <td class="px-5 py-5 bg-white text-sm font-bold">${{ inv.Valor_Actual_Mercado|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">{{ inv.cantidad_titulos }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">${{ inv.precio_compra_titulo|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">${{ inv.costo_total_adquisicion|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm font-semibold">${{ inv.precio_actual_titulo|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm font-bold">${{ inv.valor_actual_mercado|floatformat:2|intcomma }}</td>
                         <td class="px-5 py-5 bg-white text-sm font-semibold {% if inv.Ganancia_Pérdida_No_Realizada >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
-                            ${{ inv.Ganancia_Pérdida_No_Realizada|floatformat:2|intcomma }}
+                            ${{ inv.ganancia_perdida_no_realizada|floatformat:2|intcomma }}
                         </td>
                     </tr>
                 {% empty %}
