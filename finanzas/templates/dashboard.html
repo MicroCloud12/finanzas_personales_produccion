@@ -107,25 +107,56 @@
                 <p class="text-2xl font-bold text-gray-900">${{ disponible_banco|floatformat:2 | intcomma}}</p>
             </div>
         </div>
+            <!-- Inversion Inicial-->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-violet-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-violet-600">
+                    <path d="M4.5 3.75a3 3 0 0 0-3 3v.75h21v-.75a3 3 0 0 0-3-3h-15Z" />
+                    <path fill-rule="evenodd" d="M22.5 9.75h-21v7.5a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3v-7.5Zm-18 3.75a.75.75 0 0 1 .75-.75h6a.75.75 0 0 1 0 1.5h-6a.75.75 0 0 1-.75-.75Zm.75 2.25a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Inversion Inicial (USD)</p>
+                <p class="text-2xl font-bold text-gray-900">${{ inversion_inicial|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+        <!-- Inversion Actual-->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-violet-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-violet-600">
+                    <path d="M4.5 3.75a3 3 0 0 0-3 3v.75h21v-.75a3 3 0 0 0-3-3h-15Z" />
+                    <path fill-rule="evenodd" d="M22.5 9.75h-21v7.5a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3v-7.5Zm-18 3.75a.75.75 0 0 1 .75-.75h6a.75.75 0 0 1 0 1.5h-6a.75.75 0 0 1-.75-.75Zm.75 2.25a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Inversion Actual (USD)</p>
+                <p class="text-2xl font-bold text-gray-900">${{ inversion_actual|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
     </div>
-    
+    <!-- Gráficos -->
+     {% if investment_chart_data != '[]' %}
     <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Gastos por Categoría</h3>
             <div class="relative h-170">
                 <canvas id="gastosPorCategoriaChart"></canvas>
             </div>
         </div>
-
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Ingresos vs Gastos</h3>
             <div class="relative h-170">
                 <canvas id="flujoDeDineroChart"></canvas>
             </div>
         </div>
-
+        <div class="bg-white p-6 rounded-xl shadow-lg">
+            <h3 class="text-lg font-semibold text-gray-700 mb-4">Ingresos vs Gastos</h3>
+            <div class="relative h-170">
+                <canvas id="investmentLineChart"></canvas>
+            </div>
+        </div>
     </div>
+    {% endif %}
 </div>
 ...
 <script>
@@ -133,10 +164,8 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Obtenemos el "lienzo" donde se dibujará el gráfico
     const ctx = document.getElementById('gastosPorCategoriaChart').getContext('2d');
-
     // Creamos la URL para nuestra API, usando los filtros actuales de la página
     const url = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
-
     // Usamos la función 'fetch' de JavaScript para llamar a nuestra API
     fetch(url)
         .then(response => response.json()) // Convertimos la respuesta a JSON
@@ -237,5 +266,49 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const ctx = document.getElementById('investmentLineChart');
+        
+        if (ctx) {
+            const labels = {{ investment_chart_labels|safe }};
+            const data = {{ investment_chart_data|safe }};
+
+            new Chart(ctx, {
+                type: 'line', // Tipo de gráfica
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Capital Invertido Acumulado',
+                        data: data,
+                        fill: true,
+                        borderColor: '#4F46E5', // Color de la línea (índigo)
+                        backgroundColor: 'rgba(79, 70, 229, 0.1)', // Sombra bajo la línea
+                        tension: 0.1 // Suaviza la línea
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                // Formatea el eje Y para que se vea como dinero
+                                callback: function(value, index, values) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false // Ocultamos la leyenda para un look más limpio
+                        }
+                    }
+                }
+            });
+        }
+    });
 </script>
 {% endblock %}

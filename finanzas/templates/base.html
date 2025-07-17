@@ -25,13 +25,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Karla&family=Markazi+Text:wght@500&display=swap" rel="stylesheet"/>
+    <link rel="preload" as="style" href="{% static 'css/styles.css' %}" onload="this.rel = 'stylesheet'">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-     <link
-      rel="preload"
-      as="style"
-      href="{% static 'css/styles.css' %}"
-      onload="this.rel = 'stylesheet'">
   </head>
 
   <body class="bg-gray-50">
@@ -44,7 +40,9 @@
         {% block content %}
         {% endblock content %}
     </main>
-          {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
+
+    
+    {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
     {% block javascript %}
         <script>
         // Espera a que toda la página se cargue
@@ -64,7 +62,7 @@
                 }, 5000); // 5000 milisegundos = 5 segundos
             }
         });
-    </script>
-    {% endblock javascript %}
+      </script>
+      {% endblock javascript %}
     </body>
 </html>

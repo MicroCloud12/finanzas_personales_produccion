@@ -46,7 +46,7 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
 INSTALLED_APPS = [
     'tailwind',
     'theme',
-    'finanzas',
+    'finanzas.apps.FinanzasConfig',
     'allauth',
     'django.contrib.admin',
     'django.contrib.auth',

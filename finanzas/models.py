@@ -129,7 +129,15 @@ class Suscripcion(models.Model):
     id_suscripcion_mercadopago = models.CharField(max_length=100, blank=True, null=True)
 
     def is_active(self):
-        return self.estado == 'activa' and self.fecha_fin and self.fecha_fin > timezone.now()
+        """
+        Verifica si la suscripción está activa.
+        Ahora compara solo las fechas para evitar problemas de zona horaria.
+        """
+        if self.estado != 'activa' or not self.fecha_fin:
+            return False
+        
+        # Comparamos si la fecha de fin es hoy o una fecha futura.
+        return self.fecha_fin.date() >= timezone.now().date()
 
     def __str__(self):
         return f"Suscripción de {self.usuario.username} - {self.get_estado_display()}"

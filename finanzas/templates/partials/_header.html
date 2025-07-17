@@ -58,6 +58,7 @@
             <a href="{% url 'dashboard' %}" class="hover:text-indigo-600 transition-colors duration-200 text-sm font-medium">Dashboard</a>
             <a href="{% url 'lista_transacciones' %}" class="hover:text-indigo-600 transition-colors duration-200 text-sm font-medium">Transacciones</a>
             <a href="{% url 'lista_inversiones' %}" class="hover:text-indigo-600 transition-colors duration-200 text-sm font-medium">Inversiones</a>
+            <a href="{% url 'gestionar_suscripcion' %}" class="hover:text-indigo-600 transition-colors duration-200 text-sm font-medium">Mi Suscripción</a>
             <form action="{% url 'logout' %}" method="post" class="inline">
               {% csrf_token %}
               <button type="submit" class="hover:text-indigo-600 transition-colors duration-200 text-sm font-medium text-left w-full">

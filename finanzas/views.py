@@ -1,19 +1,24 @@
 # finanzas/views.py
-from decimal import Decimal
-from datetime import datetime
-from django.db.models import Sum
-from django.http import JsonResponse
-from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones
-from django.contrib.auth import login
-from django.shortcuts import render, redirect, get_object_or_404
-from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm
-from django.contrib.auth.decorators import login_required
 import logging
-from .tasks import process_drive_tickets # Tarea principal actualizada
-from .services import TransactionService, MercadoPagoService, StockPriceService
-from celery.result import AsyncResult, GroupResult
+import json
+from decimal import Decimal
+from django.utils import timezone
+from django.db.models import Sum
 from django.urls import reverse
 from django.contrib import messages
+from django.http import JsonResponse
+from django.contrib.auth import login
+from .tasks import process_drive_tickets
+from datetime import datetime, timedelta
+from django.contrib.auth.models import User
+from celery.result import AsyncResult, GroupResult
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect, get_object_or_404
+from .services import TransactionService, MercadoPagoService, StockPriceService
+from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm
+from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, Suscripcion
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,32 @@ def registro(request):
 
 @login_required
 def vista_dashboard(request):
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    # --- LÓGICA PARA LA GRÁFICA DE LÍNEAS ---
+    # Obtenemos todas las compras de inversiones del usuario, ordenadas por fecha
+    compras = inversiones.objects.filter(propietario=request.user).order_by('fecha_compra')
+
+    chart_labels = []
+    chart_data = []
+    capital_acumulado = Decimal('0.0')
+
+    # Agrupamos las compras por día y calculamos el capital acumulado
+    compras_por_dia = {}
+    for compra in compras:
+        fecha_str = compra.fecha_compra.strftime('%Y-%m-%d')
+        if fecha_str not in compras_por_dia:
+            compras_por_dia[fecha_str] = Decimal('0.0')
+        compras_por_dia[fecha_str] += compra.costo_total_adquisicion
+
+    # Ordenamos las fechas y construimos los datos del gráfico
+    fechas_ordenadas = sorted(compras_por_dia.keys())
+    for fecha in fechas_ordenadas:
+        capital_acumulado += compras_por_dia[fecha]
+        chart_labels.append(fecha)
+        chart_data.append(str(capital_acumulado))
+    # ----------------------------------------------
+    # Verificamos si la suscripción está activa con nuestro método del modelo.
+    es_usuario_premium = suscripcion.is_active()
     current_year = datetime.now().year
     current_month = datetime.now().month
     year = int(request.GET.get('year', current_year))
@@ -96,9 +127,13 @@ def vista_dashboard(request):
     ahorro_total = transacciones.filter(tipo='INGRESO').filter(categoria='Ahorro').filter(cuenta_origen = 'Cuenta Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
     proviciones = transacciones.filter(tipo='GASTO').exclude(categoria='Ahorro').filter(cuenta_origen = 'Cuenta Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
     transferencias = transacciones.filter(tipo='TRANSFERENCIA').exclude(categoria='Ahorro').exclude(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+    inversion_inicial_usd = inversiones.objects.filter(propietario=request.user).aggregate(total=Sum('costo_total_adquisicion'))['total'] or Decimal('0.00')
+    inversion_actual = inversiones.objects.filter(propietario=request.user).aggregate(total=Sum('valor_actual_mercado'))['total'] or Decimal('0.00')
+
     balance = ingresos - gastos
     disponible_banco = ingresos - gastos - transferencias
     ahorro = ahorro_total - proviciones
+
     context = {
         'ingresos': ingresos,
         'gastos': gastos,
@@ -109,7 +144,13 @@ def vista_dashboard(request):
         'selected_year': year,
         'selected_month': month,
         'years': range(current_year, current_year - 5, -1),
-        'months': range(1, 13)
+        'months': range(1, 13),
+        'es_usuario_premium': es_usuario_premium,
+        'inversion_inicial': inversion_inicial_usd,
+        'inversion_actual': inversion_actual,
+        # --- Pasamos los datos del nuevo gráfico ---
+        'investment_chart_labels': json.dumps(chart_labels),
+        'investment_chart_data': json.dumps(chart_data),
     }
     return render(request, 'dashboard.html', context)
 
@@ -129,6 +170,8 @@ def crear_transacciones(request):
 
 @login_required
 def lista_transacciones(request):
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    es_usuario_premium = suscripcion.is_active()
     current_year = datetime.now().year
     current_month = datetime.now().month
     year = int(request.GET.get('year', current_year))
@@ -138,7 +181,11 @@ def lista_transacciones(request):
         fecha__year=year,
         fecha__month=month
     ).order_by('-fecha')
-    context = {'transacciones': transacciones_del_mes}
+    
+    context = {
+        'transacciones': transacciones_del_mes,
+        'es_usuario_premium': es_usuario_premium, # <-- Añadir la variable al contexto
+    }
     return render(request, 'lista_transacciones.html', context)
 
 @login_required
@@ -315,3 +362,55 @@ def suscripcion_exitosa(request):
 def suscripcion_fallida(request):
     messages.error(request, "Hubo un problema con tu pago. Por favor, intenta de nuevo.")
     return redirect('gestionar_suscripcion')
+
+@csrf_exempt # Decorador VITAL para permitir peticiones POST desde Mercado Pago
+def mercadopago_webhook(request):
+    """
+    Recibe notificaciones de MercadoPago para actualizar el estado de las suscripciones.
+    """
+    if request.method != 'POST':
+        return HttpResponse(status=405) # Method Not Allowed
+
+    try:
+        data = json.loads(request.body)
+        topic = data.get("type")
+
+        if topic == "subscription_preapproval":
+            subscription_id = data.get("data", {}).get("id")
+            if not subscription_id:
+                return HttpResponse(status=400) # Bad Request, no ID provided
+
+            mp_service = MercadoPagoService()
+            # Obtenemos los detalles de la suscripción desde la API de Mercado Pago
+            subscription_details = mp_service.sdk.preapproval().get(subscription_id)
+            
+            if subscription_details["status"] == 200:
+                sub_data = subscription_details["response"]
+                payer_email = sub_data.get("payer_email")
+                status = sub_data.get("status")
+
+                # Buscamos al usuario por su email
+                user = User.objects.filter(email=payer_email).first()
+                if not user:
+                    return HttpResponse(status=404) # User not found
+
+                suscripcion_obj = Suscripcion.objects.get(usuario=user)
+
+                # ¡La magia! Actualizamos nuestro modelo según el estado de Mercado Pago
+                if status == 'authorized':
+                    suscripcion_obj.estado = 'activa'
+                    suscripcion_obj.id_suscripcion_mercadopago = subscription_id
+                    suscripcion_obj.fecha_inicio = timezone.now()
+                    suscripcion_obj.fecha_fin = timezone.now() + timedelta(days=31)
+                elif status in ['paused', 'cancelled']:
+                    suscripcion_obj.estado = 'cancelada'
+                
+                suscripcion_obj.save()
+
+    except (json.JSONDecodeError, KeyError, Suscripcion.DoesNotExist) as e:
+        # Log del error sería ideal aquí en un sistema de producción
+        print(f"Error procesando webhook: {e}")
+        return HttpResponse(status=400)
+
+    # Devolvemos un 200 OK para que Mercado Pago sepa que recibimos la notificación
+    return HttpResponse(status=200)

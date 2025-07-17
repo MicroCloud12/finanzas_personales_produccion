@@ -204,17 +204,32 @@ class MercadoPagoService:
         self.plan_id = os.getenv('MERCADOPAGO_PLAN_ID')
         if not self.sdk or not self.plan_id:
             raise ValueError("Las credenciales o el Plan ID de Mercado Pago no están configurados en .env")
-
+    
     def crear_link_suscripcion(self, user, back_url: str):
         """
-        Crea un link de pago para que un usuario se suscriba.
+        Construye el link de checkout para la suscripción.
+        No requiere una llamada a la API.
         """
+        # La URL base para el checkout de suscripciones
+        base_url = "https://www.mercadopago.com.mx/subscriptions/checkout"
+        
+        # Construimos la URL final con el ID de nuestro plan
+        checkout_url = f"{base_url}?preapproval_plan_id={self.plan_id}"
+        
+        # La back_url y el email del usuario se gestionan en la configuración
+        # del plan en el panel de Mercado Pago y cuando el usuario inicia sesión allí.
+        
+        return checkout_url
+    """
+    def crear_link_suscripcion(self, user, back_url: str):
+        
+        Crea un link de pago para que un usuario se suscriba.
         suscripcion_data = {
             "preapproval_plan_id": self.plan_id,
             "reason": f"Suscripción Premium para {user.email}",
             "payer_email": user.email,
             "back_url": back_url,
-            "status": "authorized"
+           #"status": "authorized"
         }
         try:
             suscripcion_response = self.sdk.preapproval().create(suscripcion_data)
@@ -226,7 +241,7 @@ class MercadoPagoService:
         except Exception as e:
             print(f"Error creando suscripción en MercadoPago: {e}")
             return None
-
+    """
 class StockPriceService:
     """
     Servicio para obtener precios de acciones de Alpha Vantage.
