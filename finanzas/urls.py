@@ -24,4 +24,15 @@ urlpatterns = [
     # 2. Una URL solo para monitorear el progreso del grupo
     path('estado-grupo/<str:group_id>/', views.get_group_status, name='get_group_status'),
     path('revisar_tickets/', views.revisar_tickets, name='revisar_tickets'),
+# --- URLs para Inversiones ---
+    path('inversiones/', views.lista_inversiones, name='lista_inversiones'),
+    path('inversiones/crear/', views.crear_inversion, name='crear_inversion'),
+
+    # --- URLs para Suscripción ---
+    path('suscripcion/', views.gestionar_suscripcion, name='gestionar_suscripcion'),
+    path('suscripcion/exitosa/', views.suscripcion_exitosa, name='suscripcion_exitosa'),
+    path('suscripcion/fallida/', views.suscripcion_fallida, name='suscripcion_fallida'),
+    
+    # Aquí irá el webhook de MercadoPago que configuraremos al final para producción
+    # path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
 ]

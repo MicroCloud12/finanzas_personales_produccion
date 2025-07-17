@@ -30,16 +30,16 @@ DEBUG = True
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
 
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+#SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Redirige todas las peticiones HTTP a HTTPS.
-SECURE_SSL_REDIRECT = True
+#SECURE_SSL_REDIRECT = True
 
 # Asegura que las cookies de sesión solo se envíen por HTTPS.
-SESSION_COOKIE_SECURE = True
+#SESSION_COOKIE_SECURE = True
 
 # Asegura que la cookie CSRF solo se envíe por HTTPS.
-CSRF_COOKIE_SECURE = True
+#CSRF_COOKIE_SECURE = True
 
 # Application definition
 
@@ -225,7 +225,7 @@ SOCIALACCOUNT_PROVIDERS = {
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_STORE_TOKENS = True
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS").split(',')
+#CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS").split(',')
 # tu_proyecto/settings.py
 
 # ... (al final del archivo)

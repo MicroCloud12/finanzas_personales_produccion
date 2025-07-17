@@ -15,6 +15,8 @@ from .utils import parse_date_safely
 from .models import registro_transacciones, TransaccionPendiente, User
 import os # Asegúrate de que User sea el modelo de usuario correcto
 import requests
+from alpha_vantage.timeseries import TimeSeries
+from django.http import JsonResponse
 
 class GoogleDriveService:
     # ... (esta clase no cambia)
@@ -195,39 +197,62 @@ class TransactionService:
         
 class MercadoPagoService:
     """
-    Servicio para manejar pagos con Mercado Pago.
+    Servicio para manejar la lógica de negocio con Mercado Pago.
     """
     def __init__(self):
-        self.client = mercadopago.SDK(os.getenv('MERCADOPAGO_ACCESS_TOKEN'))
+        self.sdk = mercadopago.SDK(os.getenv('MERCADOPAGO_ACCESS_TOKEN'))
+        self.plan_id = os.getenv('MERCADOPAGO_PLAN_ID')
+        if not self.sdk or not self.plan_id:
+            raise ValueError("Las credenciales o el Plan ID de Mercado Pago no están configurados en .env")
 
-    def create_preference(self, items: list[dict], payer_email: str) -> dict:
-        items = [
-            {
-                "title": "Suscripción Premium",
-                "quantity": 1,
-                "unit_price": 500.00,  # Precio del producto
-                "currency_id": "MXN",  # Moneda (pesos mexicanos)
-            }
-        ]
-
-        # Define las URLs a las que será redirigido el usuario
-        back_urls = {
-            "success": requests.build_absolute_uri('/pago/exitoso/'),
-            "failure": requests.build_absolute_uri('/pago/fallido/'),
-            "pending": requests.build_absolute_uri('/pago/pendiente/'),
+    def crear_link_suscripcion(self, user, back_url: str):
+        """
+        Crea un link de pago para que un usuario se suscriba.
+        """
+        suscripcion_data = {
+            "preapproval_plan_id": self.plan_id,
+            "reason": f"Suscripción Premium para {user.email}",
+            "payer_email": user.email,
+            "back_url": back_url,
+            "status": "authorized"
         }
-
-        # Crea la preferencia de pago
-        preference_data = {
-            "items": items,
-            "back_urls": back_urls,
-            "auto_return": "approved",  # Redirige automáticamente solo si el pago es aprobado
-        }
-
         try:
-            preference_response = sdk.preference().create(preference_data)
-            preference = preference_response["response"]
-            # Retornamos el ID de la preferencia para usarlo en el frontend
-            return JsonResponse({'preference_id': preference['id']})
+            suscripcion_response = self.sdk.preapproval().create(suscripcion_data)
+            if suscripcion_response["status"] == 201:
+                return suscripcion_response["response"].get("init_point")
+            else:
+                print(f"Error en la respuesta de MercadoPago: {suscripcion_response}")
+                return None
         except Exception as e:
-            return JsonResponse({'error': str(e)}, status=500)
+            print(f"Error creando suscripción en MercadoPago: {e}")
+            return None
+
+class StockPriceService:
+    """
+    Servicio para obtener precios de acciones de Alpha Vantage.
+    """
+    def __init__(self):
+        self.api_key = os.getenv('ALPHA_VANTAGE_API_KEY')
+        if not self.api_key:
+            raise ValueError("No se encontró la clave de API de Alpha Vantage en .env")
+        self.ts = TimeSeries(key=self.api_key, output_format='json')
+
+    def get_current_price(self, ticker: str):
+        """
+        Obtiene el precio más reciente para un ticker.
+        Ejemplo: 'AAPL' para Apple, 'BIMBOA.MX' para Bimbo en la BMV.
+        """
+        try:
+            data, _ = self.ts.get_quote_endpoint(symbol=ticker)
+            current_price = data.get('05. price')
+            return float(current_price) if current_price else None
+        except Exception as e:
+            print(f"Error al llamar a la API de Alpha Vantage para {ticker}: {e}")
+            return None
+
+class TransactionService:
+    """
+    Puedes mover aquí cualquier otra lógica de negocio que tengas.
+    (Por ahora lo dejamos como un marcador de posición).
+    """
+    pass

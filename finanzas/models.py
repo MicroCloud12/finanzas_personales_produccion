@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 # Create your models here.
 class registro_transacciones(models.Model):
@@ -57,18 +58,78 @@ class TransaccionPendiente(models.Model):
         return f"Pendiente de {self.propietario.username} - {descripcion}"
     
 class inversiones(models.Model):
-    Propetiario = models.ForeignKey(User, on_delete=models.CASCADE)
-    Fecha_Compra = models.DateField()
-    Emisora_Ticker = models.CharField(max_length=10)
-    Nombre_Empresa = models.CharField(max_length=100)
-    Cantidad_Títulos = models.PositiveIntegerField()
-    Precio_Compra_Título = models.DecimalField(max_digits=65, decimal_places=3)
-    Costo_Total_Adquisición = models.DecimalField(max_digits=65, decimal_places=3)
-    Tipo_Cambio_compra = models.DecimalField(max_digits=65, decimal_places=3, null=True, blank=True)
-    Precio_Actual_Título = models.DecimalField(max_digits=65, decimal_places=3)
-    Valor_Actual_Mercado = models.DecimalField(max_digits=65, decimal_places=3)
-    Ganancia_Pérdida_No_Realizada = models.DecimalField(max_digits=65, decimal_places=3)
-    Ganancia_Pérdida = models.DecimalField(max_digits=65, decimal_places=3, null=True, blank=True)
+    """
+    Modelo de Inversiones mejorado para soportar acciones fraccionadas y
+    diferentes tipos de activos.
+    """
+    # --- CAMPO NUEVO PARA CLASIFICAR LA INVERSIÓN ---
+    TIPO_INVERSION_CHOICES = [
+        ('ACCION', 'Acción'),
+        ('CRIPTO', 'Criptomoneda'),
+        ('FONDO', 'Fondo de Inversión'),
+        ('BONOS', 'Bonos'),
+        ('FIBRAS', 'Fibras'),
+        ('BIENES_RAICES', 'Bienes Raíces'),
+        # Podemos añadir más en el futuro (Bonos, Fibras, etc.)
+    ]
+    tipo_inversion = models.CharField(
+        max_length=30,
+        choices=TIPO_INVERSION_CHOICES,
+        default='ACCION'
+    )
+
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    
+    # Este campo ahora es opcional. No aplica para Cripto o Fondos.
+    emisora_ticker = models.CharField(max_length=10, blank=True, null=True)
+    
+    # Renombramos este campo para que sea más genérico
+    nombre_activo = models.CharField(max_length=100)
+    
+    # --- CORRECCIÓN PARA ACCIONES FRACCIONADAS ---
+    # Cambiamos de PositiveIntegerField a DecimalField
+    cantidad_titulos = models.DecimalField(max_digits=19, decimal_places=10)
+
+    fecha_compra = models.DateField()
+    precio_compra_titulo = models.DecimalField(max_digits=19, decimal_places=10)
+    tipo_cambio_compra = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
+    
+    # Campos calculados (no necesitan cambios)
+    costo_total_adquisicion = models.DecimalField(max_digits=20, decimal_places=10)
+    precio_actual_titulo = models.DecimalField(max_digits=19, decimal_places=10)
+    valor_actual_mercado = models.DecimalField(max_digits=20, decimal_places=10)
+    ganancia_perdida_no_realizada = models.DecimalField(max_digits=20, decimal_places=10)
+    ganancia_perdida = models.DecimalField(max_digits=20, decimal_places=10, null=True, blank=True)
 
     def __str__(self):
-       
+        return f"{self.get_tipo_inversion_display()} de {self.propietario.username} en {self.nombre_activo}"
+
+    def save(self, *args, **kwargs):
+        # La lógica de cálculo sigue funcionando igual
+        self.costo_total_adquisicion = self.cantidad_titulos * self.precio_compra_titulo
+        self.valor_actual_mercado = self.cantidad_titulos * self.precio_actual_titulo
+        self.ganancia_perdida_no_realizada = self.valor_actual_mercado - self.costo_total_adquisicion
+        super().save(*args, **kwargs)
+
+class Suscripcion(models.Model):
+    """
+    Almacena el estado de la suscripción de un usuario.
+    """
+    ESTADOS = (
+        ('activa', 'Activa'),
+        ('cancelada', 'Cancelada'),
+        ('pausada', 'Pausada'),
+        ('pendiente', 'Pendiente de Pago'),
+    )
+    
+    usuario = models.OneToOneField(User, on_delete=models.CASCADE, related_name='suscripcion')
+    estado = models.CharField(max_length=15, choices=ESTADOS, default='pendiente')
+    fecha_inicio = models.DateTimeField(null=True, blank=True)
+    fecha_fin = models.DateTimeField(null=True, blank=True)
+    id_suscripcion_mercadopago = models.CharField(max_length=100, blank=True, null=True)
+
+    def is_active(self):
+        return self.estado == 'activa' and self.fecha_fin and self.fecha_fin > timezone.now()
+
+    def __str__(self):
+        return f"Suscripción de {self.usuario.username} - {self.get_estado_display()}"

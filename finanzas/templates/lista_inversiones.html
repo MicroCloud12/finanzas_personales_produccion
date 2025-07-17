@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">Portafolio de Inversiones</h1>
+        <a href="{% url 'crear_inversion' %}" class="bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:bg-indigo-700 transition duration-300">
+            + Añadir Inversión
+        </a>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="p-4 mb-4 text-sm rounded-lg {% if message.tags == 'success' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}" role="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="bg-white shadow-lg rounded-lg overflow-x-auto">
+        <table class="min-w-full leading-normal">
+            <thead>
+                <tr class="border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th class="px-5 py-3">Ticker</th>
+                    <th class="px-5 py-3">Cantidad</th>
+                    <th class="px-5 py-3">Precio Compra</th>
+                    <th class="px-5 py-3">Costo Total</th>
+                    <th class="px-5 py-3">Precio Actual</th>
+                    <th class="px-5 py-3">Valor Mercado</th>
+                    <th class="px-5 py-3">Gan./Pérd. No Realizada</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inv in inversiones %}
+                    <tr class="border-b border-gray-200 hover:bg-gray-50">
+                        <td class="px-5 py-5 bg-white text-sm">
+                            <p class="text-gray-900 font-bold whitespace-no-wrap">{{ inv.Emisora_Ticker }}</p>
+                            <p class="text-gray-600 whitespace-no-wrap">{{ inv.Nombre_Empresa }}</p>
+                        </td>
+                        <td class="px-5 py-5 bg-white text-sm">{{ inv.Cantidad_Títulos }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">${{ inv.Precio_Compra_Título|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm">${{ inv.Costo_Total_Adquisición|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm font-semibold">${{ inv.Precio_Actual_Título|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm font-bold">${{ inv.Valor_Actual_Mercado|floatformat:2|intcomma }}</td>
+                        <td class="px-5 py-5 bg-white text-sm font-semibold {% if inv.Ganancia_Pérdida_No_Realizada >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            ${{ inv.Ganancia_Pérdida_No_Realizada|floatformat:2|intcomma }}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-10 text-gray-500">Aún no has registrado ninguna inversión. ¡Añade la primera!</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -3,19 +3,17 @@ from decimal import Decimal
 from datetime import datetime
 from django.db.models import Sum
 from django.http import JsonResponse
-from .forms import TransaccionesForm
-from .models import registro_transacciones
+from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones
 from django.contrib.auth import login
-from django.shortcuts import render, redirect
-from .forms import FormularioRegistroPersonalizado
+from django.shortcuts import render, redirect, get_object_or_404
+from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm
 from django.contrib.auth.decorators import login_required
 import logging
 from .tasks import process_drive_tickets # Tarea principal actualizada
-from .models import TransaccionPendiente
-from celery.result import AsyncResult
-from .services import TransactionService # Importamos el servicio de transacciones
-from django.http import JsonResponse
+from .services import TransactionService, MercadoPagoService, StockPriceService
 from celery.result import AsyncResult, GroupResult
+from django.urls import reverse
+from django.contrib import messages
 
 logger = logging.getLogger(__name__)
 
@@ -235,3 +233,75 @@ def rechazar_ticket(request, ticket_id):
     ticket.estado = 'rechazada'
     ticket.save()
     return redirect('revisar_tickets')
+
+
+@login_required
+def lista_inversiones(request):
+    """
+    Muestra todas las inversiones del usuario logueado.
+    """
+    lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
+    context = {'inversiones': lista}
+    return render(request, 'lista_inversiones.html', context)
+
+@login_required
+def crear_inversion(request):
+    """
+    Maneja la creación de una nueva inversión, obteniendo el precio actual de una API.
+    """
+    if request.method == 'POST':
+        form = InversionForm(request.POST)
+        if form.is_valid():
+            nueva_inversion = form.save(commit=False)
+            nueva_inversion.propietario = request.user
+
+            price_service = StockPriceService()
+            ticker = form.cleaned_data.get('emisora_ticker').upper()
+            precio_actual = price_service.get_current_price(ticker)
+            
+            nueva_inversion.precio_actual_titulo = precio_actual if precio_actual else nueva_inversion.precio_actual_titulo
+            
+            nueva_inversion.save()
+            messages.success(request, f"Inversión en {ticker} guardada con éxito.")
+            return redirect('lista_inversiones')
+    else:
+        form = InversionForm()
+    
+    context = {'form': form}
+    return render(request, 'crear_inversion.html', context)
+
+@login_required
+def gestionar_suscripcion(request):
+    """
+    Muestra el estado de la suscripción y genera el link de pago si es necesario.
+    """
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    
+    link_pago = None
+    if not suscripcion.is_active():
+        try:
+            mp_service = MercadoPagoService()
+            # La vista construye la URL absoluta y se la pasa al servicio
+            success_url = request.build_absolute_uri(reverse('suscripcion_exitosa'))
+            link_pago = mp_service.crear_link_suscripcion(request.user, success_url)
+        except Exception as e:
+            messages.error(request, f"Error al generar link de pago: {e}")
+
+    context = {
+        'suscripcion': suscripcion,
+        'link_pago': link_pago
+    }
+    return render(request, 'gestionar_suscripcion.html', context)
+
+
+# Vistas de ejemplo para las redirecciones de Mercado Pago
+# (Debes crear sus plantillas HTML correspondientes más adelante)
+@login_required
+def suscripcion_exitosa(request):
+    messages.success(request, "¡Tu pago se está procesando! La activación puede tardar unos minutos.")
+    return redirect('gestionar_suscripcion')
+
+@login_required
+def suscripcion_fallida(request):
+    messages.error(request, "Hubo un problema con tu pago. Por favor, intenta de nuevo.")
+    return redirect('gestionar_suscripcion')

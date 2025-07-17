@@ -1,5 +1,5 @@
 from django import forms
-from .models import registro_transacciones
+from .models import registro_transacciones, inversiones
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 
@@ -73,3 +73,47 @@ class FormularioRegistroPersonalizado(UserCreationForm):
         if User.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError("Este correo electrónico ya está en uso.")
         return email
+
+class InversionForm(forms.ModelForm):
+    """
+    Formulario para crear y actualizar inversiones, con estilos diferenciados.
+    """
+    class Meta:
+        model = inversiones
+        # Es más claro definir los campos que SÍ queremos mostrar.
+        fields = [
+            'tipo_inversion',
+            'nombre_activo',
+            'emisora_ticker',
+            'cantidad_titulos',
+            'fecha_compra',
+            'precio_compra_titulo',
+            'tipo_cambio_compra',
+        ]
+        widgets = {
+            'fecha_compra': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # --- LÓGICA DE ESTILOS MEJORADA ---
+
+        # Clases para inputs normales (texto, número, fecha)
+        input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+        
+        # Clases específicas para la lista desplegable (select)
+        select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+
+        # Aplicamos los estilos de forma condicional
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.Select):
+                # Si el campo es una lista (como 'tipo_inversion')
+                field.widget.attrs.update({'class': select_classes})
+            else:
+                # Para todos los demás campos
+                field.widget.attrs.update({'class': input_classes})
+        
+        # Añadimos textos de ayuda para guiar al usuario
+        self.fields['nombre_activo'].help_text = "Ej: 'NVIDIA Corp', 'Bitcoin', 'Fondo de Inversión Global'."
+        self.fields['emisora_ticker'].help_text = "Opcional. Ej: 'AAPL' para Apple, 'BIMBOA.MX' para Bimbo."
