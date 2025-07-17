@@ -205,26 +205,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // --- GRÁFICO 1: GASTOS POR CATEGORÍA (código que ya tienes) ---
-    const ctxPie = document.getElementById('gastosPorCategoriaChart').getContext('2d');
-    const urlPie = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
-    fetch(urlPie)
-        .then(response => response.json())
-        .then(data => {
-            new Chart(ctxPie, {
-                type: 'doughnut',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        data: data.data,
-                        backgroundColor: [/* ... tus colores ... */],
-                        // ... más opciones ...
-                    }]
-                },
-                // ... opciones ...
-            });
-        });
-
     // --- GRÁFICO 2: FLUJO DE DINERO (código nuevo) ---
     const ctxBar = document.getElementById('flujoDeDineroChart').getContext('2d');
     const urlBar = `{% url 'api_flujo_dinero' %}?year={{ selected_year }}&month={{ selected_month }}`;
