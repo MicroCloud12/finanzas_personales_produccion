@@ -88,36 +88,40 @@ function initFlujoDineroChart() {
 function initInversionesChart() {
     const canvas = document.getElementById('investmentLineChart');
     if (!canvas) return;
-        const labels = JSON.parse(canvas.dataset.labels || '[]');
-        const data = JSON.parse(canvas.dataset.values || '[]');
-
-        new Chart(canvas, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Capital Invertido Acumulado',
-                    data: data,
-                    fill: true,
-                    borderColor: '#4F46E5',
-                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            callback: value => '$' + value.toLocaleString()
-                        }
-                    }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-}
+        //const labels = JSON.parse(canvas.dataset.labels || '[]');
+        //const data = JSON.parse(canvas.dataset.values || '[]');
+        const url = canvas.dataset.url;
+        fetch(url)
+            .then(resp => resp.json())
+            .then(data => {
+                new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: 'Capital Invertido Acumulado',
+                            data: data.data,
+                            fill: true,
+                            borderColor: '#4F46E5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: value => '$' + value.toLocaleString()
+                                }
+                            }
+                        },
+                        plugins: { legend: { display: false } }
+                   } 
+                });
+            });
+    }
 
 document.addEventListener('DOMContentLoaded', () => {
     fadeFlashMessage();

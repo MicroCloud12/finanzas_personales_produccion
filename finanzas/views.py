@@ -26,10 +26,6 @@ logger = logging.getLogger(__name__)
 def home(request):
     return render(request, 'index.html')
 
-# ... (tus vistas home, iniciosesion, registro, vista_dashboard, etc. se mantienen igual) ...
-# ... (solo mostraremos las vistas que cambian) ...
-
-
 @login_required
 def iniciar_procesamiento_drive(request):
     """
@@ -221,6 +217,35 @@ def datos_flujo_dinero(request):
     }
     return JsonResponse(data)
 
+@login_required
+def datos_inversiones(request):
+    year = int(request.GET.get('year', datetime.now().year))
+    month = int(request.GET.get('month', datetime.now().month))
+
+    inversiones_del_mes = inversiones.objects.filter(
+        propietario=request.user,
+        fecha_compra__year=year,
+        fecha_compra__month=month
+    )
+    total_inversiones = inversiones_del_mes.aggregate(total=Sum('costo_total_adquisicion'))['total'] or Decimal('0.00')
+    total_valor_actual = inversiones_del_mes.aggregate(total=Sum('valor_actual_mercado'))['total'] or Decimal('0.00')
+    data = {
+        'labels': ['Inversiones del Mes', 'Valor Actual de Inversiones'],
+        'data': [total_inversiones, total_valor_actual],
+    }
+    return JsonResponse(data)
+    #transacciones_del_mes = registro_transacciones.objects.filter(
+    #    propietario=request.user,
+    #    fecha__year=year,
+    #    fecha__month=month
+    #)
+    #ingresos = transacciones_del_mes.filter(tipo='INGRESO').exclude(categoria='Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+    #gastos = transacciones_del_mes.filter(tipo='GASTO').exclude(categoria='Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+    #data = {
+    #    'labels': ['Ingresos del Mes', 'Gastos del Mes'],
+    #    'data': [ingresos, gastos],
+    #}
+    
 
 @login_required
 def vista_procesamiento_automatico(request):
