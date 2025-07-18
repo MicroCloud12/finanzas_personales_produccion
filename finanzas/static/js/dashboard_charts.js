@@ -70,7 +70,14 @@ function initFlujoDineroChart() {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: true } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: value => '$' + value.toLocaleString()
+                            }
+                        }
+                    },
                     plugins: { legend: { display: false } }
                 } 
                 });
