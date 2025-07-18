@@ -4,11 +4,9 @@
 {% load static %}
 
 <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
     </div>
-
     <div class="bg-white p-4 rounded-xl shadow-lg mb-8">
         <form method="GET" action="" class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
             <div class="flex items-center space-x-2">
@@ -140,155 +138,31 @@
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Gastos por Categoría</h3>
             <div class="relative h-170">
-                <canvas id="gastosPorCategoriaChart"></canvas>
+                <canvas id="gastosPorCategoriaChart"
+                        data-url="{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}">
+                </canvas>
             </div>
         </div>
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Ingresos vs Gastos</h3>
             <div class="relative h-170">
-                <canvas id="flujoDeDineroChart"></canvas>
+                <canvas id="flujoDeDineroChart"
+                        data-url="{% url 'api_flujo_dinero' %}?year={{ selected_year }}&month={{ selected_month }}">
+                </canvas>
             </div>
         </div>
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Inversion</h3>
             <div class="relative h-170">
-                <canvas id="investmentLineChart"></canvas>
+                <canvas id="investmentLineChart"
+                        data-labels="{{ investment_chart_labels|escapejs }}"
+                        data-values="{{ investment_chart_data|escapejs }}">
+                </canvas>
             </div>
         </div>
     </div>
     {% endif %}
 </div>
-...
-<script>
-// Nos aseguramos de que el DOM esté completamente cargado antes de ejecutar el script
-document.addEventListener('DOMContentLoaded', function() {
-    // Obtenemos el "lienzo" donde se dibujará el gráfico
-    const ctx = document.getElementById('gastosPorCategoriaChart').getContext('2d');
-    // Creamos la URL para nuestra API, usando los filtros actuales de la página
-    const url = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
-    // Usamos la función 'fetch' de JavaScript para llamar a nuestra API
-    fetch(url)
-        .then(response => response.json()) // Convertimos la respuesta a JSON
-        .then(data => { // Una vez que tenemos los datos...
-
-            // Creamos un nuevo gráfico usando Chart.js
-            new Chart(ctx, {
-                type: 'doughnut', // Tipo de gráfico: de dona (parecido al de pastel)
-                data: {
-                    labels: data.labels, // Las etiquetas (ej: 'Comida', 'Renta') vienen de nuestra API
-                    datasets: [{
-                        label: 'Gastos por Categoría',
-                        data: data.data, // Los datos (ej: 5000, 2500) vienen de nuestra API
-                        backgroundColor: [ // Una paleta de colores
-                            'rgba(255, 99, 132, 0.8)',
-                            'rgba(54, 162, 235, 0.8)',
-                            'rgba(255, 206, 86, 0.8)',
-                            'rgba(75, 192, 192, 0.8)',
-                            'rgba(153, 102, 255, 0.8)',
-                            'rgba(255, 159, 64, 0.8)'
-                        ],
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        }
-                    }
-                }
-            });
-        });
-});
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // --- GRÁFICO 2: FLUJO DE DINERO (código nuevo) ---
-    const ctxBar = document.getElementById('flujoDeDineroChart').getContext('2d');
-    const urlBar = `{% url 'api_flujo_dinero' %}?year={{ selected_year }}&month={{ selected_month }}`;
-    fetch(urlBar)
-        .then(response => response.json())
-        .then(data => {
-            new Chart(ctxBar, {
-                type: 'bar', // Tipo de gráfico: de barras
-                data: {
-                    labels: data.labels, // ['Ingresos', 'Gastos']
-                    datasets: [{
-                        label: 'Flujo de Dinero',
-                        data: data.data, // [valor_ingresos, valor_gastos]
-                        backgroundColor: [
-                            'rgba(75, 192, 192, 0.6)', // Color para la barra de Ingresos
-                            'rgba(255, 99, 132, 0.6)'  // Color para la barra de Gastos
-                        ],
-                        borderColor: [
-                            'rgba(75, 192, 192, 1)',
-                            'rgba(255, 99, 132, 1)'
-                        ],
-                        borderWidth: 1
-                    }]
-                },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false, // <-- LA LÍNEA MÁGICA
-                        scales: {
-                            y: {
-                                beginAtZero: true
-                            }
-                        },
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
-                        }
-                    }
-            });
-        });
-});
-</script>
-<script>
-    document.addEventListener('DOMContentLoaded', (event) => {
-        const ctx = document.getElementById('investmentLineChart');
-        
-        if (ctx) {
-            const labels = {{ investment_chart_labels|safe }};
-            const data = {{ investment_chart_data|safe }};
-
-            new Chart(ctx, {
-                type: 'line', // Tipo de gráfica
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Capital Invertido Acumulado',
-                        data: data,
-                        fill: true,
-                        borderColor: '#4F46E5', // Color de la línea (índigo)
-                        backgroundColor: 'rgba(79, 70, 229, 0.1)', // Sombra bajo la línea
-                        tension: 0.1 // Suaviza la línea
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                // Formatea el eje Y para que se vea como dinero
-                                callback: function(value, index, values) {
-                                    return '$' + value.toLocaleString();
-                                }
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false // Ocultamos la leyenda para un look más limpio
-                        }
-                    }
-                }
-            });
-        }
-    });
-</script>
+{% block javascript %}
+    <script src="{% static 'js/dashboard_charts.js' %}"></script>
 {% endblock %}

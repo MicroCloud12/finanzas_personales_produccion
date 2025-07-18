@@ -43,26 +43,6 @@
 
     
     {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
-    {% block javascript %}
-        <script>
-        // Espera a que toda la página se cargue
-        document.addEventListener('DOMContentLoaded', (event) => {
-            // Busca todos los elementos de mensaje
-            const messageWrapper = document.querySelector('.fixed.top-5.right-5');
-
-            if (messageWrapper) {
-                // Espera 5 segundos
-                setTimeout(() => {
-                    // Inicia una transición para hacerlo desaparecer
-                    messageWrapper.style.transition = 'opacity 0.5s ease';
-                    messageWrapper.style.opacity = '0';
-                    
-                    // Elimina el elemento por completo después de la transición
-                    setTimeout(() => messageWrapper.remove(), 500); 
-                }, 5000); // 5000 milisegundos = 5 segundos
-            }
-        });
-      </script>
-      {% endblock javascript %}
+    {% block javascript %}{% endblock javascript %}
     </body>
 </html>
