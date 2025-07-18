@@ -43,7 +43,6 @@
                 <p class="text-2xl font-bold text-gray-900">${{ ingresos|floatformat:2 | intcomma}}</p>
             </div>
         </div>
-    
         <!-- Gastos del Mes -->
         <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
             <div class="bg-red-100 p-3 rounded-full">
@@ -56,7 +55,7 @@
                 <p class="text-2xl font-bold text-gray-900">${{ gastos|floatformat:2 | intcomma}}</p>
             </div>
         </div>
-    <!-- Balance -->
+        <!-- Balance -->
         <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
             <div class="bg-blue-100 p-3 rounded-full">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-blue-600">
@@ -105,7 +104,7 @@
                 <p class="text-2xl font-bold text-gray-900">${{ disponible_banco|floatformat:2 | intcomma}}</p>
             </div>
         </div>
-            <!-- Inversion Inicial-->
+        <!-- Inversion Inicial-->
         <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
             <div class="bg-violet-100 p-3 rounded-full">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-violet-600">
@@ -133,7 +132,7 @@
         </div>
     </div>
     <!-- Gráficos -->
-     {% if investment_chart_data != '[]' %}
+     
     <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Gastos por Categoría</h3>
@@ -151,6 +150,7 @@
                 </canvas>
             </div>
         </div>
+        {% if investment_chart_data != '[]' %}
         <div class="bg-white p-6 rounded-xl shadow-lg">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Inversion</h3>
             <div class="relative h-170">
@@ -165,4 +165,5 @@
 </div>
 {% block javascript %}
     <script src="{% static 'js/dashboard_charts.js' %}"></script>
+{% endblock javascript %}
 {% endblock %}

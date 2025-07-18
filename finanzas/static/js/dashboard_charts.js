@@ -41,7 +41,7 @@ function initGastosChart() {
             });
 }
 
-    // Gráfico de ingresos vs gastos
+// Gráfico de ingresos vs gastos
 function initFlujoDineroChart() {
     const canvas = document.getElementById('flujoDeDineroChart');
     if (!canvas) return;
@@ -81,36 +81,35 @@ function initFlujoDineroChart() {
 function initInversionesChart() {
     const canvas = document.getElementById('investmentLineChart');
     if (!canvas) return;
+        const labels = JSON.parse(canvas.dataset.labels || '[]');
+        const data = JSON.parse(canvas.dataset.values || '[]');
 
-    const labels = JSON.parse(canvas.dataset.labels || '[]');
-    const data = JSON.parse(canvas.dataset.values || '[]');
-
-    new Chart(canvas, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Capital Invertido Acumulado',
-                data: data,
-                fill: true,
-                borderColor: '#4F46E5',
-                backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                tension: 0.1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: value => '$' + value.toLocaleString()
-                    }
-                }
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Capital Invertido Acumulado',
+                    data: data,
+                    fill: true,
+                    borderColor: '#4F46E5',
+                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                    tension: 0.1
+                }]
             },
-            plugins: { legend: { display: false } }
-        }
-    });
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: value => '$' + value.toLocaleString()
+                        }
+                    }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

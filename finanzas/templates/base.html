@@ -31,18 +31,14 @@
   </head>
 
   <body class="bg-gray-50">
-
     {% block header %}
         {% include 'partials/_header.html' %}
     {% endblock header %}
-
     <main>
         {% block content %}
         {% endblock content %}
     </main>
-
-    
     {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
     {% block javascript %}{% endblock javascript %}
-    </body>
+  </body>
 </html>
