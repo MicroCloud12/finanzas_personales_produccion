@@ -53,7 +53,7 @@ def process_drive_tickets(user_id: int):
         user = User.objects.get(id=user_id)
         gdrive_service = GoogleDriveService(user)
         files_to_process = gdrive_service.list_files_in_folder(
-            folder_name="Tickets de Compra", 
+            folder_name="Tickets de Compra",
             mimetypes=['image/jpeg', 'image/png']
         )
 

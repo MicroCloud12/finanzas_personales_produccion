@@ -58,12 +58,6 @@ def aprobar_ticket(request, ticket_id):
         
     return redirect('revisar_tickets')
 
-
-# ... (el resto de tus vistas como `rechazar_ticket`, `get_task_status`, etc. se mantienen igual) ...
-
-# El resto de vistas (home, registro, dashboard, etc.) no necesitan cambios.
-# Solo hemos modificado las que interactúan directamente con el proceso de tickets.
-# Aquí irían el resto de tus vistas sin modificar
 def iniciosesion(request):
     return render(request, 'dashboard.html')
 

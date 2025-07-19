@@ -79,7 +79,7 @@ class GeminiService:
         
         # --- CAMBIO EN EL PROMPT ---
         # Reforzamos la instrucción de la fecha.
-        self.prompt = """
+        self.prompt_tickets = """
             Eres un asistente experto en contabilidad para un sistema de finanzas personales.
             Tu tarea es analizar la imagen de un documento y extraer la información clave con la máxima precisión.
             Devuelve SIEMPRE la respuesta en formato JSON, sin absolutamente ningún texto adicional.
@@ -124,10 +124,12 @@ class GeminiService:
 
             Ahora, analiza la siguiente imagen:
         """
-
+        self.prompt_inversion = """
+            
+        """
     def extract_data_from_image(self, image: Image.Image) -> dict:
         # ... (el resto de la función no cambia)
-        response = self.model.generate_content([self.prompt, image])
+        response = self.model.generate_content([self.prompt_tickets, image])
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
         
         try:
@@ -139,7 +141,23 @@ class GeminiService:
                 "error": "Respuesta no válida de la IA",
                 "raw_response": cleaned_response
             }
-
+        
+    def extract_data_from_inversion(self, image: Image.Image) -> dict:
+        """
+        Extrae datos de una imagen de inversión utilizando Gemini.
+        """
+        # Aquí podrías usar un prompt diferente si es necesario
+        response = self.model.generate_content([self.prompt_inversion, image])
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
+        
+        try:
+            return json.loads(cleaned_response)
+        except json.JSONDecodeError:
+            print(f"Error: La respuesta de Gemini no es un JSON válido: {cleaned_response}")
+            return {
+                "error": "Respuesta no válida de la IA",
+                "raw_response": cleaned_response
+            }
 
 class TransactionService:
     """
