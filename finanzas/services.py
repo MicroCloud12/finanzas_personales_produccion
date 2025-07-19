@@ -117,10 +117,11 @@ class GeminiService:
               { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-06-28", "establecimiento": "Restaurante El Sol", "descripcion_corta": "Comida", "total": 450.00, "confianza_extraccion": "MEDIA" }
 
             ### Nota importante:
-            -Quiero que revices bien si es ticket o transferencia, ya que la extracción de datos es diferente. y lo has estado haciendo mal.
+            - Quiero que revices bien si es ticket o transferencia, ya que la extracción de datos es diferente. y lo has estado haciendo mal.
             Por ejemplo, en las transferencias estas poniendo el nombre del usuario con el nombre del banco, y no es correcto.
             Lo correcto seria que pongas el concepto de la transferencia, que es lo que el usuario pone en la app de su banco. Y eso normalmente lo pone tal cual en la transferencia.
-            -En caso de que el Establecimiento sea Express, sustituyelo por DIDI e igual en caso de que sea Tickets ponlos en mayusculas.
+            - En caso de que el Establecimiento sea Express, sustituyelo por DIDI e igual en caso de que sea Tickets ponlos en mayusculas.
+
             Ahora, analiza la siguiente imagen:
         """
 
@@ -146,7 +147,6 @@ class TransactionService:
     """
     @staticmethod
     def create_pending_transaction(user: User, data: dict):
-        # ... (esta función no cambia)
         if "error" in data:
             print(f"No se creará transacción pendiente debido a un error previo: {data['error']}")
             return None
@@ -182,10 +182,10 @@ class TransactionService:
                 propietario=user,
                 fecha=fecha_segura, # Usamos la fecha limpia y validada
                 #descripcion=datos.get("descripcion_corta", datos.get("establecimiento", "Sin descripción")),
-                descripcion=descripcion_final,
+                descripcion=descripcion_final.upper(),
                 categoria=categoria,
                 monto=Decimal(str(datos.get("total", 0.0))), # Convertir a string primero para mayor precisión con Decimal
-                tipo=tipo_transaccion.upper(),
+                tipo=tipo_transaccion,
                 cuenta_origen=cuenta
             )
             
@@ -220,28 +220,7 @@ class MercadoPagoService:
         # del plan en el panel de Mercado Pago y cuando el usuario inicia sesión allí.
         
         return checkout_url
-    """
-    def crear_link_suscripcion(self, user, back_url: str):
-        
-        Crea un link de pago para que un usuario se suscriba.
-        suscripcion_data = {
-            "preapproval_plan_id": self.plan_id,
-            "reason": f"Suscripción Premium para {user.email}",
-            "payer_email": user.email,
-            "back_url": back_url,
-           #"status": "authorized"
-        }
-        try:
-            suscripcion_response = self.sdk.preapproval().create(suscripcion_data)
-            if suscripcion_response["status"] == 201:
-                return suscripcion_response["response"].get("init_point")
-            else:
-                print(f"Error en la respuesta de MercadoPago: {suscripcion_response}")
-                return None
-        except Exception as e:
-            print(f"Error creando suscripción en MercadoPago: {e}")
-            return None
-    """
+
 class StockPriceService:
     """
     Servicio para obtener precios de acciones de Alpha Vantage.
@@ -264,10 +243,3 @@ class StockPriceService:
         except Exception as e:
             print(f"Error al llamar a la API de Alpha Vantage para {ticker}: {e}")
             return None
-
-class TransactionService:
-    """
-    Puedes mover aquí cualquier otra lógica de negocio que tengas.
-    (Por ahora lo dejamos como un marcador de posición).
-    """
-    pass
