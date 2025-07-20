@@ -2,7 +2,6 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-# Create your models here.
 class registro_transacciones(models.Model):
     propietario = models.ForeignKey(User, on_delete=models.CASCADE)
     fecha = models.DateField()
@@ -23,7 +22,6 @@ class registro_transacciones(models.Model):
     def __str__(self):
         return f"{self.id} - {self.descripcion}"
     
-# NUEVO MODELO PARA CREDENCIALES DE GOOGLE
 class GoogleCredentials(models.Model):
     # Un enlace uno-a-uno con el usuario de Django. Cada usuario solo puede tener un set de credenciales.
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -39,7 +37,6 @@ class GoogleCredentials(models.Model):
     def __str__(self):
         return f"Credenciales de Google para {self.user.username}"
     
-
 class TransaccionPendiente(models.Model):
     ESTADOS = (
         ('pendiente', 'Pendiente'),
@@ -141,3 +138,4 @@ class Suscripcion(models.Model):
 
     def __str__(self):
         return f"Suscripción de {self.usuario.username} - {self.get_estado_display()}"
+
