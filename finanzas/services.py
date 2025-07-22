@@ -261,3 +261,30 @@ class StockPriceService:
         except Exception as e:
             print(f"Error al llamar a la API de Alpha Vantage para {ticker}: {e}")
             return None
+        
+    def get_closing_price_for_date(self, ticker: str, target_date):
+        """Obtiene el precio de cierre para un ticker en una fecha dada.
+
+        Primero intenta usar la serie diaria completa. Si la fecha no se
+        encuentra (por ejemplo, fin de semana o día inhábil), se consulta la
+        serie mensual para obtener el cierre del mes correspondiente.
+        """
+        date_str = target_date.strftime('%Y-%m-%d')
+        try:
+            daily_data, _ = self.ts.get_daily(symbol=ticker, outputsize='full')
+            if date_str in daily_data:
+                return float(daily_data[date_str]['4. close'])
+        except Exception as e:
+            print(f"Error al obtener datos diarios de {ticker}: {e}")
+
+        # Fallback a la serie mensual
+        try:
+            monthly_data, _ = self.ts.get_monthly(symbol=ticker)
+            month_prefix = target_date.strftime('%Y-%m')
+            for key, values in monthly_data.items():
+                if key.startswith(month_prefix):
+                    return float(values['4. close'])
+        except Exception as e:
+            print(f"Error al obtener datos mensuales de {ticker}: {e}")
+
+        return None 

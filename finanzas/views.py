@@ -10,7 +10,10 @@ from django.http import JsonResponse
 from django.contrib.auth import login
 from .tasks import process_drive_tickets
 from datetime import datetime, timedelta
+from .utils import calculate_monthly_profit
 from django.contrib.auth.models import User
+from django.utils.dateformat import DateFormat
+from django.db.models.functions import TruncMonth
 from celery.result import AsyncResult, GroupResult
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -319,9 +322,22 @@ def crear_inversion(request):
 
 @login_required
 def datos_inversiones(request):
+    
+    qs = (
+        inversiones.objects
+        .filter(propietario=request.user)
+        .annotate(month=TruncMonth('fecha_compra'))
+        .values('month')
+        .annotate(total=Sum('ganancia_perdida_no_realizada'))
+        .order_by('month')
+    )
+    labels = [DateFormat(item['month']).format('Y-m') for item in qs]
+    values = [item['total'] for item in qs]
+    return JsonResponse({'labels': labels, 'data': values})
+
+    '''
     year = int(request.GET.get('year', datetime.now().year))
     month = int(request.GET.get('month', datetime.now().month))
-
     inversiones_del_mes = inversiones.objects.filter(
         propietario=request.user,
         fecha_compra__year=year,
@@ -333,8 +349,9 @@ def datos_inversiones(request):
         'labels': ['Inversiones del Mes', 'Valor Actual de Inversiones'],
         'data': [total_inversiones, total_valor_actual],
     }
-    return JsonResponse(data)
     
+    return JsonResponse(data)
+'''
 
 @login_required
 def gestionar_suscripcion(request):
@@ -423,3 +440,11 @@ def mercadopago_webhook(request):
 
     # Devolvemos un 200 OK para que Mercado Pago sepa que recibimos la notificación
     return HttpResponse(status=200)
+
+@login_required
+def datos_ganancias_mensuales(request):
+    """Retorna las ganancias mensuales acumuladas de las inversiones del usuario."""
+    profits = calculate_monthly_profit(request.user)
+    labels = list(profits.keys())
+    data = [profits[month] for month in labels]
+    return JsonResponse({'labels': labels, 'data': data})

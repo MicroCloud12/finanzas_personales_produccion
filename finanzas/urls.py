@@ -28,6 +28,7 @@ urlpatterns = [
     path('suscripcion/exitosa/', views.suscripcion_exitosa, name='suscripcion_exitosa'),
     path('suscripcion/fallida/', views.suscripcion_fallida, name='suscripcion_fallida'),
     path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
+    path('api/datos-ganancias-mensuales/', views.datos_ganancias_mensuales, name='api_ganancias_mensuales'),
     # Aquí irá el webhook de MercadoPago que configuraremos al final para producción
     # path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
 ]
