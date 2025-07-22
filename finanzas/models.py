@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.conf import settings
 
 class registro_transacciones(models.Model):
     propietario = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -139,3 +140,15 @@ class Suscripcion(models.Model):
     def __str__(self):
         return f"Suscripción de {self.usuario.username} - {self.get_estado_display()}"
 
+class GananciaMensual(models.Model):
+    """Almacena la suma de ganancias/pérdidas no realizadas por mes para un usuario."""
+    propietario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    mes = models.CharField(max_length=7) # Formato YYYY-MM
+    total = models.DecimalField(max_digits=20, decimal_places=2)
+
+    class Meta:
+        # Clave única para que no haya dos entradas para el mismo mes y usuario
+        unique_together = ('propietario', 'mes')
+
+    def __str__(self):
+        return f"{self.propietario.username} - {self.mes} - ${self.total}"

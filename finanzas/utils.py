@@ -48,38 +48,56 @@ def parse_date_safely(date_str: str | None) -> date:
 def calculate_monthly_profit(user, price_service=None):
     from .services import StockPriceService
     """Calcula la ganancia mensual no realizada de las inversiones de un usuario."""
-    if price_service is None:
-       price_service = StockPriceService()
+    servicio_precios = StockPriceService()
+    ganancias_mensuales = defaultdict(Decimal)
+    
+    # Obtenemos todas las inversiones del usuario de una vez
+    inversiones_usuario = inversiones.objects.filter(propietario=user)
+    
+    if not inversiones_usuario:
+        return {}
 
-    profits = defaultdict(Decimal)
-    today = datetime.now().date()
+    # Obtenemos el mes y año actual para saber hasta dónde calcular
+    hoy = datetime.now().date()
+    
+    # Creamos un diccionario para cachear los precios que ya consultamos y evitar llamadas duplicadas
+    cache_precios = {}
 
-    for inv in inversiones.objects.filter(propietario=user):
-        if not inv.emisora_ticker:
-            continue
-
-        year = inv.fecha_compra.year
-        month = inv.fecha_compra.month
-
-        while (year, month) <= (today.year, today.month):
-            last_day = monthrange(year, month)[1]
-            date_obj = date(year, month, last_day)
-            closing = price_service.get_closing_price_for_date(inv.emisora_ticker, date_obj)
-           
-            #valor_actual_mercado = closing  * inv.cantidad_titulos
+    # Iteramos por cada una de las inversiones del usuario
+    for inv in inversiones_usuario:
+        
+        # Iteramos por cada mes desde la fecha de compra hasta el día de hoy
+        fecha_iter = inv.fecha_compra
+        while fecha_iter <= hoy:
+            mes_str = fecha_iter.strftime('%Y-%m')
             
+            # Buscamos el precio de cierre para el final de ese mes
+            ultimo_dia_mes = monthrange(fecha_iter.year, fecha_iter.month)[1]
+            fecha_cierre_mes = date(fecha_iter.year, fecha_iter.month, ultimo_dia_mes)
+
+            # Usamos nuestro caché para no volver a pedir el mismo precio
+            cache_key = f"{inv.emisora_ticker}-{fecha_cierre_mes}"
+            precio_cierre = cache_precios.get(cache_key)
+
+            if precio_cierre is None:
+                precio_cierre_float = servicio_precios.get_closing_price_for_date(inv.emisora_ticker, fecha_cierre_mes)
+                
+                # Guardamos en el caché, incluso si es None, para no volver a preguntar
+                cache_precios[cache_key] = precio_cierre_float
+                precio_cierre = Decimal(str(precio_cierre_float)) if precio_cierre_float is not None else None
             
-            #total_inversiones = inversiones_del_mes.aggregate(total=Sum('costo_total_adquisicion'))['total'] or Decimal('0.00')
-            #total_valor_actual = inversiones_del_mes.aggregate(total=Sum('valor_actual_mercado'))['total'] or Decimal('0.00')
+            if precio_cierre is not None:
+                # Calculamos la ganancia no realizada para ESA inversión a final de ESE mes
+                ganancia_no_realizada = (precio_cierre - inv.precio_compra_titulo) * inv.cantidad_titulos
+                
+                # Sumamos la ganancia de esta inversión al total de ese mes
+                ganancias_mensuales[mes_str] += ganancia_no_realizada
 
-            if closing is not None:
-                profit = sum((Decimal(str(closing)) - inv.precio_compra_titulo) * inv.cantidad_titulos)['total'] or Decimal('0.00')
-                profits[f"{year}-{month:02d}"] += profit
+            # Avanzamos al siguiente mes
+            if fecha_iter.month == 12:
+                fecha_iter = date(fecha_iter.year + 1, 1, 1)
+            else:
+                fecha_iter = date(fecha_iter.year, fecha_iter.month + 1, 1)
 
-            month += 1
-            if month > 12:
-                month = 1
-                year += 1
-
-    # Ordenamos por fecha para devolver una lista coherente
-    return dict(sorted(profits.items()))
+    # Ordenamos por fecha para devolver un diccionario coherente
+    return dict(sorted(ganancias_mensuales.items()))

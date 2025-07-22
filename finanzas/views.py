@@ -21,7 +21,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from .services import TransactionService, MercadoPagoService, StockPriceService
 from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm
-from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, Suscripcion
+from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +274,6 @@ def rechazar_ticket(request, ticket_id):
     ticket.save()
     return redirect('revisar_tickets')
 
-
 @login_required
 def lista_inversiones(request):
     """
@@ -283,6 +282,7 @@ def lista_inversiones(request):
     lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
     context = {'inversiones': lista}
     return render(request, 'lista_inversiones.html', context)
+
 
 @login_required
 def crear_inversion(request):
@@ -334,8 +334,7 @@ def datos_inversiones(request):
     labels = [DateFormat(item['month']).format('Y-m') for item in qs]
     values = [item['total'] for item in qs]
     return JsonResponse({'labels': labels, 'data': values})
-
-    '''
+'''
     year = int(request.GET.get('year', datetime.now().year))
     month = int(request.GET.get('month', datetime.now().month))
     inversiones_del_mes = inversiones.objects.filter(
@@ -351,8 +350,17 @@ def datos_inversiones(request):
     }
     
     return JsonResponse(data)
-'''
 
+@login_required
+def datos_ganancias_mensuales(request):
+    """Retorna las ganancias mensuales pre-calculadas de la base de datos."""
+    ganancias = GananciaMensual.objects.filter(propietario=request.user).order_by('mes')
+    
+    labels = [g.mes for g in ganancias]
+    data = [g.total for g in ganancias]
+    
+    return JsonResponse({'labels': labels, 'data': data})
+'''
 @login_required
 def gestionar_suscripcion(request):
     """
