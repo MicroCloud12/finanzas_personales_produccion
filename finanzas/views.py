@@ -350,16 +350,6 @@ def datos_inversiones(request):
     }
     
     return JsonResponse(data)
-
-@login_required
-def datos_ganancias_mensuales(request):
-    """Retorna las ganancias mensuales pre-calculadas de la base de datos."""
-    ganancias = GananciaMensual.objects.filter(propietario=request.user).order_by('mes')
-    
-    labels = [g.mes for g in ganancias]
-    data = [g.total for g in ganancias]
-    
-    return JsonResponse({'labels': labels, 'data': data})
 '''
 @login_required
 def gestionar_suscripcion(request):
@@ -451,8 +441,15 @@ def mercadopago_webhook(request):
 
 @login_required
 def datos_ganancias_mensuales(request):
-    """Retorna las ganancias mensuales acumuladas de las inversiones del usuario."""
+    """Retorna las ganancias mensuales acumuladas de las inversiones del usuario.
     profits = calculate_monthly_profit(request.user)
     labels = list(profits.keys())
     data = [profits[month] for month in labels]
+    return JsonResponse({'labels': labels, 'data': data})
+    """
+    ganancias = GananciaMensual.objects.filter(
+        propietario=request.user
+    ).order_by('mes')
+    labels = [g.mes for g in ganancias]
+    data = [g.total for g in ganancias]
     return JsonResponse({'labels': labels, 'data': data})

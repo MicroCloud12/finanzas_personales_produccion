@@ -95,7 +95,7 @@ function initInversionesChart() {
             .then(resp => resp.json())
             .then(data => {
                 new Chart(canvas, {
-                    type: 'line',
+                    type: 'Area Chart',
                     data: {
                         labels: data.labels,
                         datasets: [{
@@ -124,7 +124,7 @@ function initInversionesChart() {
             });
     }
 // Gráfico de ganancias mensuales
-function initGananciasMensualesChart() {
+/*function initGananciasMensualesChart() {
     const canvas = document.getElementById('monthlyProfitChart');
     if (!canvas) return;
     const url = canvas.dataset.url;
@@ -158,12 +158,12 @@ function initGananciasMensualesChart() {
                 }
             });
         });
-}
+}*/
 
 document.addEventListener('DOMContentLoaded', () => {
     fadeFlashMessage();
     initGastosChart();
     initFlujoDineroChart();
     initInversionesChart();
-    initGananciasMensualesChart();
+    //initGananciasMensualesChart();
 });
