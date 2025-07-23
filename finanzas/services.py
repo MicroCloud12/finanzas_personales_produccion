@@ -280,11 +280,18 @@ class StockPriceService:
         date_str = target_date.strftime('%Y-%m-%d')
         try:
             series = self.client.time_series(
-                symbol=ticker, interval="1day", start_date=date_str, end_date=date_str
+                symbol=ticker,
+                interval="1day",
+                start_date=date_str,
+                end_date=date_str,
             )
-            data = series.as_json().get("values", [])
-            if data:
-                return float(data[0]["close"])
+            raw = series.as_json()
+            values = raw.get("values") if isinstance(raw, dict) else list(raw)
+            if values:
+                return float(values[0]["close"])
+            #data = series.as_json().get("values", [])
+            #if data:
+            #    return float(data[0]["close"])
             #daily_data, _ = self.ts.get_daily(symbol=ticker, outputsize='full')
             #if date_str in daily_data:
             #    return float(daily_data[date_str]['4. close'])
@@ -293,17 +300,21 @@ class StockPriceService:
 
         # Fallback a la serie mensual
         try:
-            month_start = target_date.replace(day=1).strftime('%Y-%m')
-            month_end = target_date.strftime('%Y-%m')
+            month_start = target_date.replace(day=1).strftime('%Y-%m-%d')
+            month_end = target_date.strftime('%Y-%m-%d')
             series = self.client.time_series(
                 symbol=ticker,
                 interval="1month",
                 start_date=month_start,
                 end_date=month_end,
             )
-            data = series.as_json().get("values", [])
-            if data:
-                return float(data[0]["close"])
+            #data = series.as_json().get("values", [])
+            raw = series.as_json()
+            values = raw.get("values") if isinstance(raw, dict) else list(raw)
+            if values:
+                return float(values[0]["close"])
+            #if data:
+            #    return float(data[0]["close"])
             #monthly_data, _ = self.ts.get_monthly(symbol=ticker)
             #month_prefix = target_date.strftime('%Y-%m')
             #for key, values in monthly_data.items():
