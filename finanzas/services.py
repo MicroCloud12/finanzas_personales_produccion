@@ -1,22 +1,24 @@
 # finanzas/services.py
+import os
 import json
-from io import BytesIO
+import requests
+import mercadopago
 from PIL import Image
+from io import BytesIO
 from decimal import Decimal
 from django.conf import settings
-from allauth.socialaccount.models import SocialApp, SocialToken
-from google.oauth2.credentials import Credentials
+import google.generativeai as genai
+from django.http import JsonResponse
+from .utils import parse_date_safely
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import google.generativeai as genai
-import mercadopago
-# ¡Importamos nuestra nueva función de utilidad!
-from .utils import parse_date_safely
+#from alpha_vantage.timeseries import TimeSeries
+from twelvedata import TDClient
+from google.oauth2.credentials import Credentials
+from allauth.socialaccount.models import SocialApp, SocialToken
 from .models import registro_transacciones, TransaccionPendiente, User
-import os # Asegúrate de que User sea el modelo de usuario correcto
-import requests
-from alpha_vantage.timeseries import TimeSeries
-from django.http import JsonResponse
+
+
 
 class GoogleDriveService:
     # ... (esta clase no cambia)
@@ -67,7 +69,6 @@ class GoogleDriveService:
     def get_file_content(self, file_id: str) -> BytesIO:
         request = self.service.files().get_media(fileId=file_id)
         return BytesIO(request.execute())
-
 
 class GeminiService:
     """
@@ -244,10 +245,10 @@ class StockPriceService:
     Servicio para obtener precios de acciones de Alpha Vantage.
     """
     def __init__(self):
-        self.api_key = os.getenv('ALPHA_VANTAGE_API_KEY')
+        self.api_key = os.getenv("TWELVEDATA_API_KEY")
         if not self.api_key:
-            raise ValueError("No se encontró la clave de API de Alpha Vantage en .env")
-        self.ts = TimeSeries(key=self.api_key, output_format='json')
+            raise ValueError("No se encontró la clave de API de Twelve Data en .env")
+        self.client = TDClient(apikey=self.api_key)
 
     def get_current_price(self, ticker: str):
         """
@@ -255,9 +256,16 @@ class StockPriceService:
         Ejemplo: 'AAPL' para Apple, 'BIMBOA.MX' para Bimbo en la BMV.
         """
         try:
-            data, _ = self.ts.get_quote_endpoint(symbol=ticker)
-            current_price = data.get('05. price')
+            quote = self.client.quote(symbol=ticker)
+            data = quote.as_json()
+            # El endpoint devuelve una lista o un dict según el modo.
+            if isinstance(data, list):
+                data = data[0] if data else {}
+            current_price = data.get("close") or data.get("price")
             return float(current_price) if current_price else None
+            #data, _ = self.ts.get_quote_endpoint(symbol=ticker)
+            #current_price = data.get('05. price')
+            #return float(current_price) if current_price else None
         except Exception as e:
             print(f"Error al llamar a la API de Alpha Vantage para {ticker}: {e}")
             return None
@@ -271,19 +279,36 @@ class StockPriceService:
         """
         date_str = target_date.strftime('%Y-%m-%d')
         try:
-            daily_data, _ = self.ts.get_daily(symbol=ticker, outputsize='full')
-            if date_str in daily_data:
-                return float(daily_data[date_str]['4. close'])
+            series = self.client.time_series(
+                symbol=ticker, interval="1day", start_date=date_str, end_date=date_str
+            )
+            data = series.as_json().get("values", [])
+            if data:
+                return float(data[0]["close"])
+            #daily_data, _ = self.ts.get_daily(symbol=ticker, outputsize='full')
+            #if date_str in daily_data:
+            #    return float(daily_data[date_str]['4. close'])
         except Exception as e:
             print(f"Error al obtener datos diarios de {ticker}: {e}")
 
         # Fallback a la serie mensual
         try:
-            monthly_data, _ = self.ts.get_monthly(symbol=ticker)
-            month_prefix = target_date.strftime('%Y-%m')
-            for key, values in monthly_data.items():
-                if key.startswith(month_prefix):
-                    return float(values['4. close'])
+            month_start = target_date.replace(day=1).strftime('%Y-%m')
+            month_end = target_date.strftime('%Y-%m')
+            series = self.client.time_series(
+                symbol=ticker,
+                interval="1month",
+                start_date=month_start,
+                end_date=month_end,
+            )
+            data = series.as_json().get("values", [])
+            if data:
+                return float(data[0]["close"])
+            #monthly_data, _ = self.ts.get_monthly(symbol=ticker)
+            #month_prefix = target_date.strftime('%Y-%m')
+            #for key, values in monthly_data.items():
+            #    if key.startswith(month_prefix):
+            #        return float(values['4. close'])
         except Exception as e:
             print(f"Error al obtener datos mensuales de {ticker}: {e}")
 

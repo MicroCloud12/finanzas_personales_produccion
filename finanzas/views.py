@@ -294,10 +294,9 @@ def crear_inversion(request):
         if form.is_valid():
             nueva_inversion = form.save(commit=False)
             nueva_inversion.propietario = request.user
-
             price_service = StockPriceService()
             ticker = form.cleaned_data.get('emisora_ticker').upper()
-            
+
             # Obtenemos el precio como float desde el servicio
             precio_actual_float = price_service.get_current_price(ticker)
             
