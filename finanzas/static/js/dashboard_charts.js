@@ -95,7 +95,7 @@ function initInversionesChart() {
             .then(resp => resp.json())
             .then(data => {
                 new Chart(canvas, {
-                    type: 'Area Chart',
+                    type: 'line',
                     data: {
                         labels: data.labels,
                         datasets: [{
@@ -165,5 +165,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initGastosChart();
     initFlujoDineroChart();
     initInversionesChart();
-    //initGananciasMensualesChart();
+    initGananciasMensualesChart();
 });

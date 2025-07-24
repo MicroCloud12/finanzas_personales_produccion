@@ -288,7 +288,7 @@ class StockPriceService:
             except Exception as e:
                 print(f"Error al obtener datos mensuales de {ticker}: {e}")
                 print(f"Error al obtener la serie mensual de {ticker}: {e}")
-            return []
+                return []
 
     def get_closing_price_for_date(self, ticker: str, target_date):
         """Obtiene el precio de cierre aproximado de un ticker para una fecha."""
