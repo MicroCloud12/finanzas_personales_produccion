@@ -16,11 +16,11 @@ def parse_date_safely(date_str: str | None) -> date:
     
     if date_str and isinstance(date_str, str):
         formats_to_try = [
-            '%Y-%m-%d',  # Formato ideal (ISO)
-            '%d/%m/%Y',
-            '%d-%m-%Y',
-            '%Y/%m/%d',
-            '%d/%m/%y',
+            "%Y-%m-%d",  # Formato ideal (ISO)
+            "%d/%m/%Y",
+            "%d-%m-%Y",
+            "%Y/%m/%d",
+            "%d/%m/%y",
         ]
         for fmt in formats_to_try:
             try:
@@ -48,7 +48,8 @@ def parse_date_safely(date_str: str | None) -> date:
 def calculate_monthly_profit(user, price_service=None):
     from .services import StockPriceService
     """Calcula la ganancia mensual no realizada de las inversiones de un usuario."""
-    servicio_precios = StockPriceService()
+    servicio_precios = price_service or StockPriceService()
+    #servicio_precios = StockPriceService()
     ganancias_mensuales = defaultdict(Decimal)
     
     # Obtenemos todas las inversiones del usuario de una vez
@@ -61,11 +62,11 @@ def calculate_monthly_profit(user, price_service=None):
     hoy = datetime.now().date()
     
     # Creamos un diccionario para cachear los precios que ya consultamos y evitar llamadas duplicadas
-    cache_precios = {}
+    #cache_precios = {}
 
     # Iteramos por cada una de las inversiones del usuario
     for inv in inversiones_usuario:
-        
+        '''
         # Iteramos por cada mes desde la fecha de compra hasta el día de hoy
         fecha_iter = inv.fecha_compra
         while fecha_iter <= hoy:
@@ -74,25 +75,36 @@ def calculate_monthly_profit(user, price_service=None):
             # Buscamos el precio de cierre para el final de ese mes
             ultimo_dia_mes = monthrange(fecha_iter.year, fecha_iter.month)[1]
             fecha_cierre_mes = date(fecha_iter.year, fecha_iter.month, ultimo_dia_mes)
-
+        '''
+        inicio = inv.fecha_compra.replace(day=1)
+        series = servicio_precios.get_monthly_series(inv.emisora_ticker, inicio, hoy)
+        precios_por_mes = {p["datetime"][:7]: Decimal(str(p["close"])) for p in series}
+        '''
             # Usamos nuestro caché para no volver a pedir el mismo precio
             cache_key = f"{inv.emisora_ticker}-{fecha_cierre_mes}"
             precio_cierre = cache_precios.get(cache_key)
-
+        
             if precio_cierre is None:
                 precio_cierre_float = servicio_precios.get_closing_price_for_date(inv.emisora_ticker, fecha_cierre_mes)
                 
                 # Guardamos en el caché, incluso si es None, para no volver a preguntar
                 cache_precios[cache_key] = precio_cierre_float
                 precio_cierre = Decimal(str(precio_cierre_float)) if precio_cierre_float is not None else None
-            
+        '''
+        fecha_iter = inicio
+        while fecha_iter <= hoy:
+            mes_str = fecha_iter.strftime("%Y-%m")
+            precio_cierre = precios_por_mes.get(mes_str)
             if precio_cierre is not None:
                 # Calculamos la ganancia no realizada para ESA inversión a final de ESE mes
-                ganancia_no_realizada = (precio_cierre - inv.precio_compra_titulo) * inv.cantidad_titulos
+                #ganancia_no_realizada = (precio_cierre - inv.precio_compra_titulo) * inv.cantidad_titulos
                 
                 # Sumamos la ganancia de esta inversión al total de ese mes
-                ganancias_mensuales[mes_str] += ganancia_no_realizada
-
+                #ganancias_mensuales[mes_str] += ganancia_no_realizada
+                ganancia = (
+                    precio_cierre - inv.precio_compra_titulo
+                    ) * inv.cantidad_titulos
+                ganancias_mensuales[mes_str] += ganancia
             # Avanzamos al siguiente mes
             if fecha_iter.month == 12:
                 fecha_iter = date(fecha_iter.year + 1, 1, 1)

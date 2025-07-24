@@ -6,6 +6,7 @@ import mercadopago
 from PIL import Image
 from io import BytesIO
 from decimal import Decimal
+from twelvedata import TDClient
 from django.conf import settings
 import google.generativeai as genai
 from django.http import JsonResponse
@@ -13,7 +14,6 @@ from .utils import parse_date_safely
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 #from alpha_vantage.timeseries import TimeSeries
-from twelvedata import TDClient
 from google.oauth2.credentials import Credentials
 from allauth.socialaccount.models import SocialApp, SocialToken
 from .models import registro_transacciones, TransaccionPendiente, User
@@ -270,13 +270,40 @@ class StockPriceService:
             print(f"Error al llamar a la API de Alpha Vantage para {ticker}: {e}")
             return None
         
+    def get_monthly_series(self, ticker: str, start_date, end_date):
+            """Devuelve la serie de precios mensuales para un rango de fechas."""
+            start_str = start_date.strftime("%Y-%m-%d")
+            end_str = end_date.strftime("%Y-%m-%d")
+            try:
+                series = self.client.time_series(
+                    symbol=ticker,
+                    interval="1month",
+                    start_date=start_str,
+                    end_date=end_str,
+                )
+
+                raw = series.as_json()
+                values = raw.get("values") if isinstance(raw, dict) else list(raw)
+                return values or []
+            except Exception as e:
+                print(f"Error al obtener datos mensuales de {ticker}: {e}")
+                print(f"Error al obtener la serie mensual de {ticker}: {e}")
+            return []
+
     def get_closing_price_for_date(self, ticker: str, target_date):
-        """Obtiene el precio de cierre para un ticker en una fecha dada.
+        """Obtiene el precio de cierre aproximado de un ticker para una fecha."""
+        month_start = target_date.replace(day=1)
+        series = self.get_monthly_series(ticker, month_start, target_date)
+        if series:
+            return float(series[0]["close"])
+        return None
+    """def get_closing_price_for_date(self, ticker: str, target_date):
+        Obtiene el precio de cierre para un ticker en una fecha dada.
 
         Primero intenta usar la serie diaria completa. Si la fecha no se
         encuentra (por ejemplo, fin de semana o día inhábil), se consulta la
         serie mensual para obtener el cierre del mes correspondiente.
-        """
+        
         date_str = target_date.strftime('%Y-%m-%d')
         try:
             series = self.client.time_series(
@@ -324,3 +351,4 @@ class StockPriceService:
             print(f"Error al obtener datos mensuales de {ticker}: {e}")
 
         return None 
+"""
