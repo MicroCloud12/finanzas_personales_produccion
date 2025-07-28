@@ -96,6 +96,7 @@ def calculate_monthly_profit(user, price_service=None):
             mes_str = fecha_iter.strftime("%Y-%m")
             precio_cierre = precios_por_mes.get(mes_str)
             if precio_cierre is not None:
+                print(f"DEBUG: Para {inv.emisora_ticker} en {mes_str}, la API devolvió un precio de cierre de: {precio_cierre}")
                 # Calculamos la ganancia no realizada para ESA inversión a final de ESE mes
                 #ganancia_no_realizada = (precio_cierre - inv.precio_compra_titulo) * inv.cantidad_titulos
                 

@@ -69,3 +69,17 @@ También puede usar cron si prefiere ejecutar el comando mediante un cron job. U
 ```
 
 De esta forma el dashboard siempre utilizará la información precalculada.
+
+
+#### Accesar a la base de datos en Docker 
+1. Ejecutar: docker-compose exec db /bin/bash
+2. Después Ejecutar: mysql -u finanzas_user -p finanzas_db
+3. Contrasñea: se encuentra dentro del .env
+
+-- Para ver los registros ya aprobados
+SELECT id, fecha, descripcion, monto FROM finanzas_registro_transacciones ORDER BY id DESC LIMIT 10;
+
+-- Para ver los tickets pendientes de revisión
+SELECT id, datos_json FROM finanzas_transaccionpendiente ORDER BY id DESC LIMIT 10;
+
+UPDATE finanzas_registro_transacciones SET categoria = 'Renta' WHERE id = 40;

@@ -1,6 +1,5 @@
 from . import views
 from django.urls import path
-# Importamos las vistas de autenticación que Django nos regala
 from django.contrib.auth import views as auth_views
 
 urlpatterns = [

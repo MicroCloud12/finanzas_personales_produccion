@@ -1,9 +1,8 @@
-# finanzas/tasks.py
+import logging
+from PIL import Image
 from celery import shared_task, group
 from django.contrib.auth.models import User
-from PIL import Image
 from .services import GoogleDriveService, GeminiService, TransactionService
-import logging
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
