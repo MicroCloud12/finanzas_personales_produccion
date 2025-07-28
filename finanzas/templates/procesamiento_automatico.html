@@ -39,7 +39,7 @@
 
             {% if user.socialaccount_set.all %}
                 <div class="text-center">
-                    <button id="start-processing-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                    <button id="start-processing-btn" data-start-url="{% url 'procesar_drive' %}" data-redirect-url="{% url 'revisar_tickets' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
                         Sincronizar Tickets desde Drive
                     </button>
                 </div>
@@ -62,102 +62,5 @@
 {% endblock %}
 
 {% block javascript %}
-{# El código JavaScript para la barra de progreso se queda exactamente igual #}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const startBtn = document.getElementById('start-processing-btn');
-    const progressContainer = document.getElementById('progress-container');
-    const progressText = document.getElementById('progress-text');
-    const progressBar = document.getElementById('progress-bar');
-    let pollingInterval;
-
-    startBtn.addEventListener('click', async function() {
-        console.log("Botón presionado.");
-        
-        startBtn.disabled = true;
-        progressContainer.classList.remove('hidden');
-        updateProgress(0, "Iniciando...", 'bg-blue-500');
-
-        try {
-            // 1. Iniciar el proceso
-            const initialResponse = await fetch("{% url 'procesar_drive' %}");
-            const initialData = await initialResponse.json();
-            const initialTaskId = initialData.task_id;
-            console.log(`Tarea inicial ID: ${initialTaskId}`);
-
-            // 2. Esperar a que la tarea inicial nos dé el ID del grupo
-            updateProgress(15, "Buscando tickets...");
-            const groupId = await waitForGroupId(initialTaskId);
-            console.log(`Grupo de tareas ID: ${groupId}`);
-            
-            // 3. Monitorear el progreso del grupo
-            updateProgress(25, "Procesando tickets...");
-            await monitorGroupProgress(groupId);
-            
-            // 4. Finalizar
-            updateProgress(100, "¡Proceso completado!", 'bg-green-500');
-            setTimeout(() => {
-                window.location.href = "{% url 'revisar_tickets' %}";
-            }, 1500);
-
-        } catch (error) {
-            handleError(error.message);
-        }
-    });
-
-    async function waitForGroupId(taskId) {
-        while (true) {
-            await sleep(2500);
-            console.log(`Consultando tarea inicial: ${taskId}`);
-            
-            const response = await fetch(`/resultado-tarea-inicial/${taskId}/`);
-            const data = await response.json();
-
-            if (data.status === 'SUCCESS') {
-                const result = data.result;
-                if (result.status === 'STARTED') return result.task_group_id;
-                if (result.status === 'NO_FILES') throw new Error("No se encontraron nuevos tickets.");
-                throw new Error("Respuesta inesperada de la tarea inicial.");
-            } else if (data.status === 'FAILURE') {
-                throw new Error(`Tarea inicial falló: ${data.info}`);
-            }
-            // Si el estado es PENDING, el bucle continúa
-        }
-    }
-
-    async function monitorGroupProgress(groupId) {
-        while (true) {
-            await sleep(2500);
-            console.log(`Consultando grupo: ${groupId}`);
-            
-            const response = await fetch(`/estado-grupo/${groupId}/`);
-            const data = await response.json();
-
-            if (data.status === 'COMPLETED') {
-                return; // Termina el bucle
-            } else if (data.status === 'PROGRESS') {
-                updateProgress(data.progress, `Procesando... ${data.completed} de ${data.total} lotes listos.`);
-            } else if (data.status === 'FAILURE') {
-                 throw new Error(`El procesamiento del grupo falló: ${data.info}`);
-            }
-        }
-    }
-
-    function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
-    function updateProgress(percentage, text, color = 'bg-blue-500') {
-        progressBar.style.width = `${percentage}%`;
-        progressBar.textContent = `${percentage}%`;
-        progressBar.className = `text-xs font-medium text-blue-100 text-center p-0.5 leading-none rounded-full ${color}`;
-        progressText.textContent = text;
-    }
-
-    function handleError(message) {
-        if (pollingInterval) clearInterval(pollingInterval);
-        console.error("Error:", message);
-        updateProgress(100, `Error: ${message}`, 'bg-red-500');
-        startBtn.disabled = false;
-    }
-});
-</script>
+<script src="{% static 'js/procesamiento.js' %}"></script>
 {% endblock javascript %}
