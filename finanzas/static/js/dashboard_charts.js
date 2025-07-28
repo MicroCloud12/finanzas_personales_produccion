@@ -12,6 +12,35 @@ function fadeFlashMessage() {
         }
 }
 
+document.addEventListener('DOMContentLoaded', function() {
+    const menuButton = document.getElementById('profile-menu-button');
+    const dropdownMenu = document.getElementById('profile-menu');
+
+    if (menuButton && dropdownMenu) {
+        // Muestra u oculta el menú al hacer clic en el botón
+        menuButton.addEventListener('click', function(event) {
+            event.stopPropagation();
+            // La magia sucede aquí: simplemente quitamos o ponemos la clase 'hidden'
+            dropdownMenu.classList.toggle('hidden');
+        });
+
+        // Cierra el menú si el usuario hace clic fuera de él
+        window.addEventListener('click', function(event) {
+            // Si el menú está visible y el clic fue fuera del botón
+            if (!dropdownMenu.classList.contains('hidden') && !menuButton.contains(event.target)) {
+                dropdownMenu.classList.add('hidden');
+            }
+        });
+        
+        // Opcional: Cierra el menú con la tecla 'Escape'
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' && !dropdownMenu.classList.contains('hidden')) {
+                dropdownMenu.classList.add('hidden');
+            }
+        });
+    }
+});
+
 // Gráfico de gastos por categoría
 function initGastosChart() {
     const canvas = document.getElementById('gastosPorCategoriaChart');
