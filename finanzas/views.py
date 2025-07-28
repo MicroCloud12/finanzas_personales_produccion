@@ -180,6 +180,26 @@ def lista_transacciones(request):
     return render(request, 'lista_transacciones.html', context)
 
 @login_required
+def editar_transaccion(request, transaccion_id):
+    transaccion = get_object_or_404(registro_transacciones, id=transaccion_id, propietario=request.user)
+    if request.method == 'POST':
+        form = TransaccionesForm(request.POST, instance=transaccion)
+        if form.is_valid():
+            form.save()
+            return redirect('lista_transacciones')
+    else:
+        form = TransaccionesForm(instance=transaccion)
+    return render(request, 'editar_transaccion.html', {'form': form})
+
+@login_required
+def eliminar_transaccion(request, transaccion_id):
+    transaccion = get_object_or_404(registro_transacciones, id=transaccion_id, propietario=request.user)
+    if request.method == 'POST':
+        transaccion.delete()
+        return redirect('lista_transacciones')
+    return render(request, 'confirmar_eliminar_transaccion.html', {'transaccion': transaccion})
+
+@login_required
 def datos_gastos_categoria(request):
     year = int(request.GET.get('year', datetime.now().year))
     month = int(request.GET.get('month', datetime.now().month))

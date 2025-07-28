@@ -41,6 +41,7 @@
                     <th class="px-5 py-3">Tipo</th>
                     <th class="px-5 py-3">Cuenta Origen</th>
                     <th class="px-5 py-3">Monto</th>
+                    <th class="px-5 py-3">Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -53,6 +54,13 @@
                         <td class="px-5 py-5 bg-white text-sm">{{ transaccion.cuenta_origen }}</td>
                         <td class="px-5 py-5 bg-white text-sm font-semibold {% if transaccion.tipo == 'INGRESO' %}text-green-600{% else %}text-red-600{% endif %}">
                             ${{ transaccion.monto|floatformat:2|intcomma }}
+                        </td>
+                        <td class="px-5 py-5 bg-white text-sm">
+                            <a href="{% url 'editar_transaccion' transaccion.id %}" class="text-indigo-600 hover:text-indigo-900">Editar</a>
+                            <form action="{% url 'eliminar_transaccion' transaccion.id %}" method="post" class="inline">
+                                {% csrf_token %}
+                                <button type="submit" class="text-red-600 hover:text-red-900 ml-2">Eliminar</button>
+                            </form>
                         </td>
                     </tr>
                 {% empty %}
