@@ -42,7 +42,6 @@ def iniciar_procesamiento_drive(request):
         # Captura errores generales durante el inicio de la tarea
         return JsonResponse({"error": f"No se pudo iniciar la tarea: {str(e)}"}, status=400)
 
-
 @login_required
 def aprobar_ticket(request, ticket_id):
     if request.method == 'POST':
@@ -213,7 +212,6 @@ def datos_flujo_dinero(request):
     }
     return JsonResponse(data)
 
-
 @login_required
 def vista_procesamiento_automatico(request):
     return render(request, 'procesamiento_automatico.html')
@@ -223,7 +221,6 @@ def revisar_tickets(request):
     tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
     return render(request, 'revisar_tickets.html', {'tickets': tickets_pendientes})
 
-# VISTA 1: Solo para la tarea inicial
 @login_required
 def get_initial_task_result(request, task_id):
     """
@@ -240,7 +237,6 @@ def get_initial_task_result(request, task_id):
         logger.error(f"Error en get_initial_task_result: {e}")
         return JsonResponse({"status": "FAILURE", "info": str(e)}, status=500)
 
-# VISTA 2: Solo para el grupo de tareas
 @login_required
 def get_group_status(request, group_id):
     """
@@ -281,7 +277,6 @@ def lista_inversiones(request):
     lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
     context = {'inversiones': lista}
     return render(request, 'lista_inversiones.html', context)
-
 
 @login_required
 def crear_inversion(request):
@@ -332,23 +327,7 @@ def datos_inversiones(request):
     labels = [DateFormat(item['month']).format('Y-m') for item in qs]
     values = [item['total'] for item in qs]
     return JsonResponse({'labels': labels, 'data': values})
-'''
-    year = int(request.GET.get('year', datetime.now().year))
-    month = int(request.GET.get('month', datetime.now().month))
-    inversiones_del_mes = inversiones.objects.filter(
-        propietario=request.user,
-        fecha_compra__year=year,
-        fecha_compra__month=month
-    )
-    total_inversiones = inversiones_del_mes.aggregate(total=Sum('costo_total_adquisicion'))['total'] or Decimal('0.00')
-    total_valor_actual = inversiones_del_mes.aggregate(total=Sum('valor_actual_mercado'))['total'] or Decimal('0.00')
-    data = {
-        'labels': ['Inversiones del Mes', 'Valor Actual de Inversiones'],
-        'data': [total_inversiones, total_valor_actual],
-    }
-    
-    return JsonResponse(data)
-'''
+
 @login_required
 def gestionar_suscripcion(request):
     """
@@ -372,9 +351,6 @@ def gestionar_suscripcion(request):
     }
     return render(request, 'gestionar_suscripcion.html', context)
 
-
-# Vistas de ejemplo para las redirecciones de Mercado Pago
-# (Debes crear sus plantillas HTML correspondientes más adelante)
 @login_required
 def suscripcion_exitosa(request):
     messages.success(request, "¡Tu pago se está procesando! La activación puede tardar unos minutos.")
@@ -385,7 +361,7 @@ def suscripcion_fallida(request):
     messages.error(request, "Hubo un problema con tu pago. Por favor, intenta de nuevo.")
     return redirect('gestionar_suscripcion')
 
-@csrf_exempt # Decorador VITAL para permitir peticiones POST desde Mercado Pago
+@csrf_exempt
 def mercadopago_webhook(request):
     """
     Recibe notificaciones de MercadoPago para actualizar el estado de las suscripciones.

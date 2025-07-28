@@ -42,7 +42,6 @@ class TransaccionesForm (forms.ModelForm):
                     # Para todos los demás campos
                     field.widget.attrs.update({'class': tailwind_input_classes})
 
-
 class FormularioRegistroPersonalizado(UserCreationForm):
     # El campo de email y la validación que ya teníamos están perfectos.
     email = forms.EmailField(

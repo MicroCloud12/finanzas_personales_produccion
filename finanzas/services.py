@@ -19,7 +19,6 @@ from allauth.socialaccount.models import SocialApp, SocialToken
 from .models import registro_transacciones, TransaccionPendiente, User
 
 
-
 class GoogleDriveService:
     # ... (esta clase no cambia)
     """
