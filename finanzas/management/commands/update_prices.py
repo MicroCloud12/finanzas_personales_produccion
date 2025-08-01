@@ -15,7 +15,7 @@ class Command(BaseCommand):
             )
         )
         # Obtenemos todas las inversiones que son de tipo 'Acción'
-        investment_list = inversiones.objects.filter(tipo_inversion="ACCION")
+        investment_list = inversiones.objects.filter()
         
         if not investment_list:
             #self.stdout.write(self.style.WARNING('No se encontraron inversiones de tipo "Acción" para actualizar.'))

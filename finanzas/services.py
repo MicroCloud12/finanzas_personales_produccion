@@ -1,15 +1,14 @@
 # finanzas/services.py
 import os
 import json
-import requests
 import mercadopago
 from PIL import Image
 from io import BytesIO
 from decimal import Decimal
 from twelvedata import TDClient
+from cachetools import TTLCache
 from django.conf import settings
 import google.generativeai as genai
-from django.http import JsonResponse
 from .utils import parse_date_safely
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -243,6 +242,10 @@ class StockPriceService:
     """
     Servicio para obtener precios de acciones de Alpha Vantage.
     """
+    # Caches para limitar las consultas a la API
+    _price_cache: TTLCache = TTLCache(maxsize=100, ttl=300)   # 5 minutos
+    _series_cache: TTLCache = TTLCache(maxsize=50, ttl=86400) # 1 día
+
     def __init__(self):
         self.api_key = os.getenv("TWELVEDATA_API_KEY")
         if not self.api_key:
@@ -254,6 +257,10 @@ class StockPriceService:
         Obtiene el precio más reciente para un ticker.
         Ejemplo: 'AAPL' para Apple, 'BIMBOA.MX' para Bimbo en la BMV.
         """
+        cache_key = ticker.upper()
+        if cache_key in self._price_cache:
+            return self._price_cache[cache_key]
+        
         try:
             quote = self.client.quote(symbol=ticker)
             data = quote.as_json()
@@ -261,18 +268,46 @@ class StockPriceService:
             if isinstance(data, list):
                 data = data[0] if data else {}
             current_price = data.get("close") or data.get("price")
-            return float(current_price) if current_price else None
+            #return float(current_price) if current_price else None
             #data, _ = self.ts.get_quote_endpoint(symbol=ticker)
             #current_price = data.get('05. price')
             #return float(current_price) if current_price else None
+            price = float(current_price) if current_price else None
+            if price is not None:
+                self._price_cache[cache_key] = price
+            return price
+        
         except Exception as e:
-            print(f"Error al llamar a la API de Alpha Vantage para {ticker}: {e}")
+            print(f"Error al llamar a la API de Twelve Data para {ticker}: {e}")
             return None
         
     def get_monthly_series(self, ticker: str, start_date, end_date):
+            """Devuelve la serie de precios mensuales para un rango de fechas.
+            start_str = start_date.strftime("%Y-%m-%d")
+            end_str = end_date.strftime("%Y-%m-%d")
+            try:
+                series = self.client.time_series(
+                    symbol=ticker,
+                    interval="1month",
+                    start_date=start_str,
+                    end_date=end_str,
+                )
+            """
             """Devuelve la serie de precios mensuales para un rango de fechas."""
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
+            cache_key = f"{ticker.upper()}:{start_str}:{end_str}"
+            if cache_key in self._series_cache:
+                return self._series_cache[cache_key]
+            """
+                raw = series.as_json()
+                values = raw.get("values") if isinstance(raw, dict) else list(raw)
+                return values or []
+            except Exception as e:
+                print(f"Error al obtener datos mensuales de {ticker}: {e}")
+                print(f"Error al obtener la serie mensual de {ticker}: {e}")
+                return []
+            """
             try:
                 series = self.client.time_series(
                     symbol=ticker,
@@ -283,7 +318,9 @@ class StockPriceService:
 
                 raw = series.as_json()
                 values = raw.get("values") if isinstance(raw, dict) else list(raw)
-                return values or []
+                values = values or []
+                self._series_cache[cache_key] = values
+                return values
             except Exception as e:
                 print(f"Error al obtener datos mensuales de {ticker}: {e}")
                 print(f"Error al obtener la serie mensual de {ticker}: {e}")
