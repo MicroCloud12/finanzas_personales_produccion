@@ -441,6 +441,7 @@ def datos_ganancias_mensuales(request):
     data = [profits[month] for month in labels]
     return JsonResponse({'labels': labels, 'data': data})
     """
+    
     ganancias = GananciaMensual.objects.filter(
         propietario=request.user
     ).order_by('mes')

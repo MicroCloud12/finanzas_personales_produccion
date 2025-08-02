@@ -63,7 +63,8 @@ def calculate_monthly_profit(user, price_service=None):
     
     # Creamos un diccionario para cachear los precios que ya consultamos y evitar llamadas duplicadas
     #cache_precios = {}
-
+    inversiones_por_ticker = defaultdict(list)
+    inicio_por_ticker = {}
     # Iteramos por cada una de las inversiones del usuario
     for inv in inversiones_usuario:
         '''
@@ -76,9 +77,8 @@ def calculate_monthly_profit(user, price_service=None):
             ultimo_dia_mes = monthrange(fecha_iter.year, fecha_iter.month)[1]
             fecha_cierre_mes = date(fecha_iter.year, fecha_iter.month, ultimo_dia_mes)
         '''
+        inversiones_por_ticker[inv.emisora_ticker].append(inv)
         inicio = inv.fecha_compra.replace(day=1)
-        series = servicio_precios.get_monthly_series(inv.emisora_ticker, inicio, hoy)
-        precios_por_mes = {p["datetime"][:7]: Decimal(str(p["close"])) for p in series}
         '''
             # Usamos nuestro caché para no volver a pedir el mismo precio
             cache_key = f"{inv.emisora_ticker}-{fecha_cierre_mes}"
@@ -91,26 +91,35 @@ def calculate_monthly_profit(user, price_service=None):
                 cache_precios[cache_key] = precio_cierre_float
                 precio_cierre = Decimal(str(precio_cierre_float)) if precio_cierre_float is not None else None
         '''
-        fecha_iter = inicio
-        while fecha_iter <= hoy:
-            mes_str = fecha_iter.strftime("%Y-%m")
-            precio_cierre = precios_por_mes.get(mes_str)
-            if precio_cierre is not None:
-                print(f"DEBUG: Para {inv.emisora_ticker} en {mes_str}, la API devolvió un precio de cierre de: {precio_cierre}")
-                # Calculamos la ganancia no realizada para ESA inversión a final de ESE mes
-                #ganancia_no_realizada = (precio_cierre - inv.precio_compra_titulo) * inv.cantidad_titulos
-                
-                # Sumamos la ganancia de esta inversión al total de ese mes
-                #ganancias_mensuales[mes_str] += ganancia_no_realizada
-                ganancia = (
-                    precio_cierre - inv.precio_compra_titulo
-                    ) * inv.cantidad_titulos
-                ganancias_mensuales[mes_str] += ganancia
-            # Avanzamos al siguiente mes
-            if fecha_iter.month == 12:
-                fecha_iter = date(fecha_iter.year + 1, 1, 1)
-            else:
-                fecha_iter = date(fecha_iter.year, fecha_iter.month + 1, 1)
+        if inv.emisora_ticker not in inicio_por_ticker or inicio < inicio_por_ticker[inv.emisora_ticker]:
+            inicio_por_ticker[inv.emisora_ticker] = inicio
+
+            # Consultamos la serie mensual solo una vez por ticker
+    series_cache = {}
+    for ticker, inicio in inicio_por_ticker.items():
+        series = servicio_precios.get_monthly_series(ticker, inicio, hoy)
+        series_cache[ticker] = {p["datetime"][:7]: Decimal(str(p["close"])) for p in series}
+
+    # Calculamos las ganancias iterando sobre cada inversión pero reutilizando el caché
+    for ticker, inversiones_list in inversiones_por_ticker.items():
+        precios_por_mes = series_cache.get(ticker, {})
+        for inv in inversiones_list:
+            fecha_iter = inv.fecha_compra.replace(day=1)
+            while fecha_iter <= hoy:
+                mes_str = fecha_iter.strftime("%Y-%m")
+                precio_cierre = precios_por_mes.get(mes_str)
+                if precio_cierre is not None:
+                    costo_total_adquisicion = inv.cantidad_titulos * inv.precio_compra_titulo
+                    valor_actual_mercado = inv.cantidad_titulos * precio_cierre
+                    ganancia_perdida_no_realizada = valor_actual_mercado - costo_total_adquisicion
+                    ganancias_mensuales[mes_str] += ganancia_perdida_no_realizada
+                    #ganancia = (precio_cierre - inv.precio_compra_titulo) * inv.cantidad_titulos
+                    #print(f"Ganancia para {inv.nombre_activo} en {mes_str}: {ganancias_mensuales[mes_str]}")
+                # Avanzamos al siguiente mes
+                if fecha_iter.month == 12:
+                    fecha_iter = date(fecha_iter.year + 1, 1, 1)
+                else:
+                    fecha_iter = date(fecha_iter.year, fecha_iter.month + 1, 1)
 
     # Ordenamos por fecha para devolver un diccionario coherente
     return dict(sorted(ganancias_mensuales.items()))
