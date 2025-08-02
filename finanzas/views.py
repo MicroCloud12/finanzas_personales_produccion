@@ -448,3 +448,10 @@ def datos_ganancias_mensuales(request):
     labels = [g.mes for g in ganancias]
     data = [g.total for g in ganancias]
     return JsonResponse({'labels': labels, 'data': data})
+
+def lista_deudas(request):
+    return render(request, 'deudas.html')
+
+@login_required
+def crear_deuda(request):
+    return render(request, 'crear_deuda.html')

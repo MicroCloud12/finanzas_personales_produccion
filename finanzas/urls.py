@@ -30,6 +30,8 @@ urlpatterns = [
     path('suscripcion/fallida/', views.suscripcion_fallida, name='suscripcion_fallida'),
     path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
     path('api/datos-ganancias-mensuales/', views.datos_ganancias_mensuales, name='api_ganancias_mensuales'),
+    path('deudas/', views.lista_deudas, name='lista_deudas'),
+    path('deudas/crear/', views.crear_deuda, name='crear_deuda'),
     #path('api/datos-inversiones/', views.lista_inversiones, name='api_datos_inversiones'),
     # Esta URL alimenta tu gráfica de ganancias en el dashboard
     #path('api/datos-ganancias-mensuales/', views.datos_ganancias_mensuales, name='api_ganancias_mensuales'),

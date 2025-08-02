@@ -152,3 +152,22 @@ class GananciaMensual(models.Model):
 
     def __str__(self):
         return f"{self.propietario.username} - {self.mes} - ${self.total}"
+    
+class Deuda(models.Model):
+    """
+    Modelo para representar deudas de los usuarios.
+    Permite registrar el monto, la fecha de creación y el estado de la deuda.
+    """
+    ESTADOS = (
+        ('pendiente', 'Pendiente'),
+        ('pagada', 'Pagada'),
+        ('cancelada', 'Cancelada'),
+    )
+    
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    monto = models.DecimalField(max_digits=20, decimal_places=2)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    estado = models.CharField(max_length=10, choices=ESTADOS, default='pendiente')
+    
+    def __str__(self):
+        return f"Deuda de {self.propietario.username} - ${self.monto} ({self.get_estado_display()})"
