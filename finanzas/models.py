@@ -165,9 +165,17 @@ class Deuda(models.Model):
     )
     
     propietario = models.ForeignKey(User, on_delete=models.CASCADE)
-    monto = models.DecimalField(max_digits=20, decimal_places=2)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
+    numero_meses = models.IntegerField(default=1)  # Número de meses para pagar la deuda
+    monto_total_deuda = models.DecimalField(max_digits=20, decimal_places=2)
+    amortizacion_capital = models.DecimalField(max_digits=20, decimal_places=2, default=0.0)
+    interes = models.DecimalField(max_digits=5, decimal_places=2, default=0.0)
+    iva = models.DecimalField(max_digits=5, decimal_places=2, default=0.0)
+    pago_mensual = models.DecimalField(max_digits=20, decimal_places=2)
+    total_restante = models.DecimalField(max_digits=20, decimal_places=2, default=0.0)
+    fecha_vencimiento = models.DateField(null=True, blank=True)
     estado = models.CharField(max_length=10, choices=ESTADOS, default='pendiente')
+    id_prestamo_ref = models.CharField(max_length=10, blank=True, null=True)
     
     def __str__(self):
-        return f"Deuda de {self.propietario.username} - ${self.monto} ({self.get_estado_display()})"
+        return f"Deuda de {self.propietario.username} - ${self.monto_total} ({self.get_estado_display()})"
