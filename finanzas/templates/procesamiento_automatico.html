@@ -38,114 +38,29 @@
             </p>
 
             {% if user.socialaccount_set.all %}
-                <button id="sync-button" data-url="{% url 'procesar_drive' %}" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md shadow-lg">
-                    Sincronizar Tickets
-                </button>
+                <div class="text-center">
+                    <button id="start-processing-btn" data-start-url="{% url 'procesar_drive' %}" data-redirect-url="{% url 'revisar_tickets' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                        Sincronizar Tickets desde Drive
+                    </button>
+                </div>
             {% else %}
                  <button class="w-full bg-gray-400 text-white font-bold py-2 px-4 rounded-md cursor-not-allowed" disabled>
                     Sincronizar Tickets
                 </button>
             {% endif %}
-
-            <div id="progress-wrapper" class="hidden mt-4">
-                <p id="progress-text" class="text-center text-sm text-gray-700 mb-2">Procesando...</p>
-                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+            <div id="progress-container" class="mt-8 hidden">
+                <p id="progress-text" class="text-center text-gray-700 mb-2">Iniciando...</p>
+                <div class="w-full bg-gray-200 rounded-full">
+                    <div id="progress-bar" class="bg-blue-500 text-xs font-medium text-blue-100 text-center p-0.5 leading-none rounded-full" style="width: 0%">
+                        0%
+                    </div>
                 </div>
             </div>
         </div>
-
     </div>
 </div>
 {% endblock %}
 
 {% block javascript %}
-{# El código JavaScript para la barra de progreso se queda exactamente igual #}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const syncButton = document.getElementById('sync-button');
-    const progressWrapper = document.getElementById('progress-wrapper');
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
-
-    if (syncButton) {
-        syncButton.addEventListener('click', function() {
-            syncButton.disabled = true;
-            syncButton.textContent = 'Procesando...';
-            progressWrapper.classList.remove('hidden');
-            progressBar.style.width = '10%';
-
-            fetch(this.dataset.url)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.task_id) {
-                        pollTaskStatus(data.task_id);
-                    } else {
-                        throw new Error(data.error || 'No se pudo iniciar la tarea.');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    progressText.textContent = 'Error al iniciar. Intenta de nuevo.';
-                    progressBar.classList.add('bg-red-500');
-                    syncButton.disabled = false;
-                    syncButton.textContent = 'Sincronizar Tickets';
-                });
-        });
-    }
-
-    function pollTaskStatus(taskId) {
-        const interval = setInterval(() => {
-            fetch(`/task-status/${taskId}/`)
-                .then(response => response.json())
-                .then(data => {
-                    let currentWidth = parseFloat(progressBar.style.width) || 0;
-                    if (currentWidth < 90) {
-                        progressBar.style.width = (currentWidth + 5) + '%';
-                    }
-
-                    if (data.task_status === 'SUCCESS') {
-                        clearInterval(interval);
-                        
-                        // --- LÓGICA MEJORADA ---
-                        const result = data.task_result;
-                        if (result.status === 'SUCCESS' && result.processed_count > 0) {
-                            // Caso de éxito real
-                            progressBar.style.width = '100%';
-                            progressText.textContent = `¡Éxito! Se procesaron ${result.processed_count} tickets. Redirigiendo...`;
-                            progressBar.classList.remove('bg-blue-600');
-                            progressBar.classList.add('bg-green-500');
-                            window.location.href = "{% url 'revisar_tickets' %}";
-
-                        } else if (result.status === 'NO_FILES') {
-                            // Caso: No se encontraron archivos
-                            progressText.textContent = 'No se encontraron tickets nuevos para procesar.';
-                            progressBar.style.width = '0%';
-                            progressBar.classList.remove('bg-blue-600');
-                            progressBar.classList.add('bg-yellow-500'); // Un color de advertencia
-                            syncButton.disabled = false;
-                            syncButton.textContent = 'Volver a Sincronizar';
-
-                        } else {
-                            // Caso: Éxito, pero 0 tickets procesados (o algún otro estado)
-                            progressText.textContent = 'El proceso finalizó pero no se registró ningún ticket nuevo.';
-                            progressBar.style.width = '0%';
-                             syncButton.disabled = false;
-                            syncButton.textContent = 'Volver a Sincronizar';
-                        }
-                        // --- FIN DE LÓGICA MEJORADA ---
-
-                    } else if (data.task_status === 'FAILURE') {
-                        // La tarea falló
-                        clearInterval(interval);
-                        progressText.textContent = 'Ocurrió un error durante el procesamiento.';
-                        progressBar.classList.add('bg-red-500');
-                        syncButton.disabled = false;
-                        syncButton.textContent = 'Sincronizar Tickets de Drive';
-                    }
-                });
-        }, 2000);
-    }
-});
-</script>
+<script src="{% static 'js/procesamiento.js' %}"></script>
 {% endblock javascript %}

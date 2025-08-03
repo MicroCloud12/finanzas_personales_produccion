@@ -1,5 +1,4 @@
 {% load static %}
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -11,60 +10,36 @@
     <link
       rel="shortcut icon"
       type="image/png"
-      href="{% static 'img/favicon.ico' %}"
+      href="#"
     />-->
 
     <!-- Include your CSS files here 
     <link
       rel="preload"
       as="style"
-      href="{% static 'css/style.css' %}"
+      href="#"
       onload="this.rel = 'stylesheet'"
     />-->
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Karla&family=Markazi+Text:wght@500&display=swap" rel="stylesheet"/>
+    <link rel="preload" as="style" href="{% static 'css/styles.css' %}" onload="this.rel = 'stylesheet'">
+    <link rel="shortcut icon" type="image/png" href="{% static 'img/favicon.ico' %}"/>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-     <link
-      rel="preload"
-      as="style"
-      href="{% static 'css/styles.css' %}"
-      onload="this.rel = 'stylesheet'">
+    <script src="{% static 'js/main.js' %}"></script>
   </head>
 
   <body class="bg-gray-50">
-
     {% block header %}
         {% include 'partials/_header.html' %}
     {% endblock header %}
-
     <main>
         {% block content %}
         {% endblock content %}
     </main>
-          {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
-    {% block javascript %}
-        <script>
-        // Espera a que toda la página se cargue
-        document.addEventListener('DOMContentLoaded', (event) => {
-            // Busca todos los elementos de mensaje
-            const messageWrapper = document.querySelector('.fixed.top-5.right-5');
-
-            if (messageWrapper) {
-                // Espera 5 segundos
-                setTimeout(() => {
-                    // Inicia una transición para hacerlo desaparecer
-                    messageWrapper.style.transition = 'opacity 0.5s ease';
-                    messageWrapper.style.opacity = '0';
-                    
-                    // Elimina el elemento por completo después de la transición
-                    setTimeout(() => messageWrapper.remove(), 500); 
-                }, 5000); // 5000 milisegundos = 5 segundos
-            }
-        });
-    </script>
-    {% endblock javascript %}
-    </body>
+    {# --- AÑADE ESTE BLOQUE AL FINAL DEL ARCHIVO --- #}
+    {% block javascript %}{% endblock javascript %}
+  </body>
 </html>

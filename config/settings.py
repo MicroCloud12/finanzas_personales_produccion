@@ -11,30 +11,35 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from dotenv import load_dotenv
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv()
 NPM_BIN_PATH = r"C:\Program Files\nodejs\npm.cmd"
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY",
-    "django-insecure-96&mm2#f@c87t7g9$(9_f7kalnt9q&k$88@)^!pc&+7yk*0b0r",
-)
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "True").lower() in ["1", "true", "yes"]
+DEBUG = True
 
-ALLOWED_HOSTS = [
-    h.strip()
-    for h in os.environ.get("ALLOWED_HOSTS", "").split(",")
-    if h.strip()
-]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Redirige todas las peticiones HTTP a HTTPS.
+SECURE_SSL_REDIRECT = True
+
+# Asegura que las cookies de sesión solo se envíen por HTTPS.
+SESSION_COOKIE_SECURE = True
+
+# Asegura que la cookie CSRF solo se envíe por HTTPS.
+CSRF_COOKIE_SECURE = True
 
 # Application definition
 
@@ -60,6 +65,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -94,11 +100,11 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'finanzas_db'),
-        'USER': os.environ.get('DB_USER', 'finanzas_user'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'zLf,)uXZma5H0mG5'),
-        'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
-        'PORT': os.environ.get('DB_PORT', '3306'), 
+        'NAME': os.getenv("DB_NAME"),
+        'USER': os.getenv("DB_USER"),
+        'PASSWORD': os.getenv("DB_PASSWORD"),
+        'HOST': os.getenv("DB_HOST"),
+        'PORT': os.getenv("DB_PORT"),
     }
 }
 
@@ -137,6 +143,24 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# La URL para acceder a los archivos estáticos en el navegador
+
+# El directorio donde `collectstatic` reunirá todos los archivos
+# para la producción. No necesita estar en .env.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Los directorios donde Django buscará tus archivos estáticos
+# (CSS, JS, imágenes de tu proyecto)
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
+# Configuración de almacenamiento para WhiteNoise (optimiza el caché).
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -158,8 +182,8 @@ LOGOUT_REDIRECT_URL = 'home'
 # config/settings.py
 
 # --- CELERY SETTINGS ---
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_BROKER_URL = 'redis://redis:6379/0'
+CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -200,4 +224,44 @@ SOCIALACCOUNT_PROVIDERS = {
 
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_STORE_TOKENS = True
-GEMINI_API_KEY = "AIzaSyAMli9iQZprw6cG1M-bHuiWk_n7YYiHmrU"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS").split(',')
+# tu_proyecto/settings.py
+
+# ... (al final del archivo)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'debug.log', # El archivo se creará en la raíz de tu proyecto
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        # Este es el logger para tu app 'finanzas'. ¡Puedes cambiar el nombre!
+        'finanzas': {
+            'handlers': ['console', 'file'], # Envía los logs a la consola y al archivo
+            'level': 'DEBUG', # Captura desde el nivel más bajo (DEBUG)
+            'propagate': False,
+        },
+    },
+}

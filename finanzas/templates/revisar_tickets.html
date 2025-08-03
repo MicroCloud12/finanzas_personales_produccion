@@ -27,7 +27,16 @@
                 {% for ticket in tickets %}
                 <tr>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">{{ ticket.datos_json.fecha }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">{{ ticket.datos_json.descripcion|default:ticket.datos_json.establecimiento }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">
+                        {% if ticket.datos_json.tipo_documento == 'TICKET_COMPRA' %}
+                            {{ ticket.datos_json.establecimiento }}
+                        {% elif ticket.datos_json.tipo_documento == 'TRANSFERENCIA' %}
+                            {{ ticket.datos_json.descripcion_corta }}
+                        {% else %}
+                            {# Opcional: Muestra algo si no es ninguna de las dos #}
+                            {{ ticket.datos_json.establecimiento|default:ticket.datos_json.descripcion_corta }}
+                        {% endif %}
+                    </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-red-600 align-middle">${{ ticket.datos_json.total }}</td>
 
                     {# Celda de acciones con estilos unificados #}
@@ -48,6 +57,17 @@
                                 <option>Supermercado</option>
                                 <option>Entretenimiento</option>
                                 <option>Servicios</option>
+                                <option>Nomina</option>
+                                <option>Mascotas</option>
+                                <option>Renta</option>
+                                <option>Ahorro</option>
+                                <option>Suscripciones</option>
+                                <option>Salud</option>
+                                <option>Educación</option>
+                                <option>Impuestos</option>
+                                <option>Inversion</option>
+                                <option>Tiendas de conveniencia</option>
+                                <option>Deudas</option>
                                 <option>Otro</option>
                             </select>
 

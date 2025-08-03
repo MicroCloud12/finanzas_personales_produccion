@@ -1,0 +1,48 @@
+services:
+  db:
+    # ... (esta sección no cambia)
+    image: mysql:8.4.3
+    volumes:
+      - mysql_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 'zLf,)uXZma5H0mG5'
+      MYSQL_DATABASE: 'finanzas_db'
+      MYSQL_USER: 'finanzas_user'
+      MYSQL_PASSWORD: 'zLf,)uXZma5H0mG5'
+    ports:
+      - "3306:3306"
+
+  web:
+    build: .
+    # --- LÍNEA MODIFICADA ---
+    # -k gevent: Usa los trabajadores de tipo gevent.
+    # --timeout 60: Aumenta el tiempo de espera a 60 segundos.
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --log-file=-
+    # --- AÑADE ESTO ---
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  redis:
+    image: "redis:alpine"
+
+  celery:
+    build: .
+    command: celery -A config worker -l info
+    # --- AÑADE ESTO ---
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  mysql_data:

@@ -4,11 +4,9 @@
 {% load static %}
 
 <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
     </div>
-
     <div class="bg-white p-4 rounded-xl shadow-lg mb-8">
         <form method="GET" action="" class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
             <div class="flex items-center space-x-2">
@@ -45,7 +43,6 @@
                 <p class="text-2xl font-bold text-gray-900">${{ ingresos|floatformat:2 | intcomma}}</p>
             </div>
         </div>
-    
         <!-- Gastos del Mes -->
         <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
             <div class="bg-red-100 p-3 rounded-full">
@@ -58,7 +55,7 @@
                 <p class="text-2xl font-bold text-gray-900">${{ gastos|floatformat:2 | intcomma}}</p>
             </div>
         </div>
-    <!-- Balance -->
+        <!-- Balance -->
         <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
             <div class="bg-blue-100 p-3 rounded-full">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-blue-600">
@@ -98,8 +95,9 @@
         <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
             <div class="bg-violet-100 p-3 rounded-full">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6 text-violet-600">
-                    <path d="M4.5 3.75a3 3 0 0 0-3 3v.75h21v-.75a3 3 0 0 0-3-3h-15Z" />
-                    <path fill-rule="evenodd" d="M22.5 9.75h-21v7.5a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3v-7.5Zm-18 3.75a.75.75 0 0 1 .75-.75h6a.75.75 0 0 1 0 1.5h-6a.75.75 0 0 1-.75-.75Zm.75 2.25a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd" />
+                    <path d="M11.584 2.376a.75.75 0 0 1 .832 0l9 6a.75.75 0 1 1-.832 1.248L12 3.901 3.416 9.624a.75.75 0 0 1-.832-1.248l9-6Z" />
+                    <path fill-rule="evenodd" d="M20.25 10.332v9.918H21a.75.75 0 0 1 0 1.5H3a.75.75 0 0 1 0-1.5h.75v-9.918a.75.75 0 0 1 .634-.74A49.109 49.109 0 0 1 12 9c2.59 0 5.134.202 7.616.592a.75.75 0 0 1 .634.74Zm-7.5 2.418a.75.75 0 0 0-1.5 0v6.75a.75.75 0 0 0 1.5 0v-6.75Zm3-.75a.75.75 0 0 1 .75.75v6.75a.75.75 0 0 1-1.5 0v-6.75a.75.75 0 0 1 .75-.75ZM9 12.75a.75.75 0 0 0-1.5 0v6.75a.75.75 0 0 0 1.5 0v-6.75Z" clip-rule="evenodd" />
+                    <path d="M12 7.875a1.125 1.125 0 1 0 0-2.25 1.125 1.125 0 0 0 0 2.25Z" />
                 </svg>
             </div>
             <div>
@@ -107,135 +105,63 @@
                 <p class="text-2xl font-bold text-gray-900">${{ disponible_banco|floatformat:2 | intcomma}}</p>
             </div>
         </div>
+        <!-- Inversion Inicial-->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-gray-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6">
+                    <path fill-rule="evenodd" d="M2.25 2.25a.75.75 0 0 0 0 1.5H3v10.5a3 3 0 0 0 3 3h1.21l-1.172 3.513a.75.75 0 0 0 1.424.474l.329-.987h8.418l.33.987a.75.75 0 0 0 1.422-.474l-1.17-3.513H18a3 3 0 0 0 3-3V3.75h.75a.75.75 0 0 0 0-1.5H2.25Zm6.54 15h6.42l.5 1.5H8.29l.5-1.5Zm8.085-8.995a.75.75 0 1 0-.75-1.299 12.81 12.81 0 0 0-3.558 3.05L11.03 8.47a.75.75 0 0 0-1.06 0l-3 3a.75.75 0 1 0 1.06 1.06l2.47-2.47 1.617 1.618a.75.75 0 0 0 1.146-.102 11.312 11.312 0 0 1 3.612-3.321Z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Inversion Inicial (USD)</p>
+                <p class="text-2xl font-bold text-gray-900">${{ inversion_inicial|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
+        <!-- Inversion Actual-->
+        <div class="bg-white p-6 rounded-xl shadow-lg flex items-center space-x-4">
+            <div class="bg-gray-100 p-3 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6">
+                    <path fill-rule="evenodd" d="M2.25 2.25a.75.75 0 0 0 0 1.5H3v10.5a3 3 0 0 0 3 3h1.21l-1.172 3.513a.75.75 0 0 0 1.424.474l.329-.987h8.418l.33.987a.75.75 0 0 0 1.422-.474l-1.17-3.513H18a3 3 0 0 0 3-3V3.75h.75a.75.75 0 0 0 0-1.5H2.25Zm6.04 16.5.5-1.5h6.42l.5 1.5H8.29Zm7.46-12a.75.75 0 0 0-1.5 0v6a.75.75 0 0 0 1.5 0v-6Zm-3 2.25a.75.75 0 0 0-1.5 0v3.75a.75.75 0 0 0 1.5 0V9Zm-3 2.25a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0v-1.5Z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm font-medium text-gray-500">Inversion Actual (USD)</p>
+                <p class="text-2xl font-bold text-gray-900">${{ inversion_actual|floatformat:2 | intcomma}}</p>
+            </div>
+        </div>
     </div>
-    
-    <div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        <div class="bg-white p-6 rounded-xl shadow-lg">
+    <!-- Gráficos -->
+    <!--<div class="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">-->
+    <div class="mt-8 grid grid-cols-4 grid-rows-4 gap-6">
+        <div class="bg-white p-6 rounded-xl shadow-lg col-span-2 row-span-2">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Gastos por Categoría</h3>
             <div class="relative h-170">
-                <canvas id="gastosPorCategoriaChart"></canvas>
+                <canvas id="gastosPorCategoriaChart"
+                        data-url="{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}">
+                </canvas>
             </div>
         </div>
-
-        <div class="bg-white p-6 rounded-xl shadow-lg">
+        <div class="bg-white p-6 rounded-xl shadow-lg col-span-2 row-span-2 col-start-3">
             <h3 class="text-lg font-semibold text-gray-700 mb-4">Ingresos vs Gastos</h3>
             <div class="relative h-170">
-                <canvas id="flujoDeDineroChart"></canvas>
+                <canvas id="flujoDeDineroChart"
+                        data-url="{% url 'api_flujo_dinero' %}?year={{ selected_year }}&month={{ selected_month }}">
+                </canvas>
             </div>
         </div>
-
+        {% if investment_chart_data != '[]' %}
+        <div class="bg-white p-6 rounded-xl shadow-lg col-span-4 row-span-2 row-start-3">
+            <h3 class="text-lg font-semibold text-gray-700 mb-4">Inversion</h3>
+            <div class="relative h-170">
+                <canvas id="investmentLineChart"
+                        data-url="{% url 'api_ganancias_mensuales' %}">
+                </canvas>
+            </div>
+        </div>
     </div>
+    {% endif %}
 </div>
-...
-<script>
-// Nos aseguramos de que el DOM esté completamente cargado antes de ejecutar el script
-document.addEventListener('DOMContentLoaded', function() {
-    // Obtenemos el "lienzo" donde se dibujará el gráfico
-    const ctx = document.getElementById('gastosPorCategoriaChart').getContext('2d');
-
-    // Creamos la URL para nuestra API, usando los filtros actuales de la página
-    const url = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
-
-    // Usamos la función 'fetch' de JavaScript para llamar a nuestra API
-    fetch(url)
-        .then(response => response.json()) // Convertimos la respuesta a JSON
-        .then(data => { // Una vez que tenemos los datos...
-
-            // Creamos un nuevo gráfico usando Chart.js
-            new Chart(ctx, {
-                type: 'doughnut', // Tipo de gráfico: de dona (parecido al de pastel)
-                data: {
-                    labels: data.labels, // Las etiquetas (ej: 'Comida', 'Renta') vienen de nuestra API
-                    datasets: [{
-                        label: 'Gastos por Categoría',
-                        data: data.data, // Los datos (ej: 5000, 2500) vienen de nuestra API
-                        backgroundColor: [ // Una paleta de colores
-                            'rgba(255, 99, 132, 0.8)',
-                            'rgba(54, 162, 235, 0.8)',
-                            'rgba(255, 206, 86, 0.8)',
-                            'rgba(75, 192, 192, 0.8)',
-                            'rgba(153, 102, 255, 0.8)',
-                            'rgba(255, 159, 64, 0.8)'
-                        ],
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        }
-                    }
-                }
-            });
-        });
-});
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // --- GRÁFICO 1: GASTOS POR CATEGORÍA (código que ya tienes) ---
-    const ctxPie = document.getElementById('gastosPorCategoriaChart').getContext('2d');
-    const urlPie = `{% url 'api_datos_gastos' %}?year={{ selected_year }}&month={{ selected_month }}`;
-    fetch(urlPie)
-        .then(response => response.json())
-        .then(data => {
-            new Chart(ctxPie, {
-                type: 'doughnut',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        data: data.data,
-                        backgroundColor: [/* ... tus colores ... */],
-                        // ... más opciones ...
-                    }]
-                },
-                // ... opciones ...
-            });
-        });
-
-    // --- GRÁFICO 2: FLUJO DE DINERO (código nuevo) ---
-    const ctxBar = document.getElementById('flujoDeDineroChart').getContext('2d');
-    const urlBar = `{% url 'api_flujo_dinero' %}?year={{ selected_year }}&month={{ selected_month }}`;
-    fetch(urlBar)
-        .then(response => response.json())
-        .then(data => {
-            new Chart(ctxBar, {
-                type: 'bar', // Tipo de gráfico: de barras
-                data: {
-                    labels: data.labels, // ['Ingresos', 'Gastos']
-                    datasets: [{
-                        label: 'Flujo de Dinero',
-                        data: data.data, // [valor_ingresos, valor_gastos]
-                        backgroundColor: [
-                            'rgba(75, 192, 192, 0.6)', // Color para la barra de Ingresos
-                            'rgba(255, 99, 132, 0.6)'  // Color para la barra de Gastos
-                        ],
-                        borderColor: [
-                            'rgba(75, 192, 192, 1)',
-                            'rgba(255, 99, 132, 1)'
-                        ],
-                        borderWidth: 1
-                    }]
-                },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false, // <-- LA LÍNEA MÁGICA
-                        scales: {
-                            y: {
-                                beginAtZero: true
-                            }
-                        },
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
-                        }
-                    }
-            });
-        });
-});
-</script>
+{% block javascript %}
+    <script src="{% static 'js/dashboard_charts.js' %}"></script>
+{% endblock javascript %}
 {% endblock %}
