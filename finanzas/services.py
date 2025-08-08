@@ -18,8 +18,7 @@ from googleapiclient.errors import HttpError
 #from alpha_vantage.timeseries import TimeSeries
 from google.oauth2.credentials import Credentials
 from allauth.socialaccount.models import SocialApp, SocialToken
-from .models import registro_transacciones, TransaccionPendiente, User
-
+from .models import registro_transacciones, TransaccionPendiente, User, inversiones
 
 class GoogleDriveService:
     # ... (esta clase no cambia)
@@ -160,6 +159,13 @@ class GeminiService:
                 "error": "Respuesta no válida de la IA",
                 "raw_response": cleaned_response
             }
+_gemini_singleton = None
+def get_gemini_service() -> GeminiService:
+    """Obtiene una instancia única de :class:`GeminiService` por proceso."""
+    global _gemini_singleton
+    if _gemini_singleton is None:
+        _gemini_singleton = GeminiService()
+    return _gemini_singleton
 
 class TransactionService:
     """
@@ -315,58 +321,38 @@ class StockPriceService:
         if series:
             return float(series[0]["close"])
         return None
-    """def get_closing_price_for_date(self, ticker: str, target_date):
-        Obtiene el precio de cierre para un ticker en una fecha dada.
 
-        Primero intenta usar la serie diaria completa. Si la fecha no se
-        encuentra (por ejemplo, fin de semana o día inhábil), se consulta la
-        serie mensual para obtener el cierre del mes correspondiente.
-        
-        date_str = target_date.strftime('%Y-%m-%d')
+class InvestmentService:
+    """Servicio para manejar la creación de inversiones."""
+
+    @staticmethod
+    def create_investment(user: User, data: dict):
+        if "error" in data:
+            print(f"No se creará inversión debido a un error previo: {data['error']}")
+            return None
+
+        ticker = (data.get("ticker") or "").upper()
+        nombre = data.get("nombre_activo") or ticker
+        tipo_inversion = data.get("tipo_inversion", "ACCION")
+        cantidad = Decimal(str(data.get("cantidad", 0)))
+        precio_compra = Decimal(str(data.get("precio", 0)))
+        fecha = parse_date_safely(data.get("fecha"))
+
+        price_service = StockPriceService()
         try:
-            series = self.client.time_series(
-                symbol=ticker,
-                interval="1day",
-                start_date=date_str,
-                end_date=date_str,
-            )
-            raw = series.as_json()
-            values = raw.get("values") if isinstance(raw, dict) else list(raw)
-            if values:
-                return float(values[0]["close"])
-            #data = series.as_json().get("values", [])
-            #if data:
-            #    return float(data[0]["close"])
-            #daily_data, _ = self.ts.get_daily(symbol=ticker, outputsize='full')
-            #if date_str in daily_data:
-            #    return float(daily_data[date_str]['4. close'])
-        except Exception as e:
-            print(f"Error al obtener datos diarios de {ticker}: {e}")
+            precio_actual_float = price_service.get_current_price(ticker) if ticker else None
+        except Exception:
+            precio_actual_float = None
+        precio_actual = Decimal(str(precio_actual_float)) if precio_actual_float is not None else precio_compra
 
-        # Fallback a la serie mensual
-        try:
-            month_start = target_date.replace(day=1).strftime('%Y-%m-%d')
-            month_end = target_date.strftime('%Y-%m-%d')
-            series = self.client.time_series(
-                symbol=ticker,
-                interval="1month",
-                start_date=month_start,
-                end_date=month_end,
-            )
-            #data = series.as_json().get("values", [])
-            raw = series.as_json()
-            values = raw.get("values") if isinstance(raw, dict) else list(raw)
-            if values:
-                return float(values[0]["close"])
-            #if data:
-            #    return float(data[0]["close"])
-            #monthly_data, _ = self.ts.get_monthly(symbol=ticker)
-            #month_prefix = target_date.strftime('%Y-%m')
-            #for key, values in monthly_data.items():
-            #    if key.startswith(month_prefix):
-            #        return float(values['4. close'])
-        except Exception as e:
-            print(f"Error al obtener datos mensuales de {ticker}: {e}")
-
-        return None 
-"""
+        return inversiones.objects.create(
+            propietario=user,
+            tipo_inversion=tipo_inversion,
+            emisora_ticker=ticker or None,
+            nombre_activo=nombre,
+            cantidad_titulos=cantidad,
+            fecha_compra=fecha,
+            precio_compra_titulo=precio_compra,
+            precio_actual_titulo=precio_actual,
+            tipo_cambio_compra=None,
+        )

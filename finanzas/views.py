@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.contrib import messages
 from django.http import JsonResponse
 from django.contrib.auth import login
-from .tasks import process_drive_tickets
+from .tasks import process_drive_tickets, process_drive_investments
 from datetime import datetime, timedelta
 from django.db.models import Sum
 from decimal import Decimal
@@ -211,6 +211,10 @@ def lista_transacciones(request):
     context = {
         'transacciones': transacciones_del_mes,
         'es_usuario_premium': es_usuario_premium, # <-- Añadir la variable al contexto
+        'selected_year': year,
+        'selected_month': month,
+        'years': range(current_year, current_year - 5, -1),
+        'months': range(1, 13),
     }
     return render(request, 'lista_transacciones.html', context)
 
@@ -329,9 +333,31 @@ def lista_inversiones(request):
     """
     Muestra todas las inversiones del usuario logueado.
     """
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
     lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
-    context = {'inversiones': lista}
+    es_usuario_premium = suscripcion.is_active()
+    context = {'inversiones': lista, 'es_usuario_premium': es_usuario_premium}
     return render(request, 'lista_inversiones.html', context)
+
+@login_required
+def editar_inversion(request, inversion_id):
+    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
+    if request.method == 'POST':
+        form = InversionForm(request.POST, instance=inversion)
+        if form.is_valid():
+            form.save()
+            return redirect('lista_inversiones')
+    else:
+        form = InversionForm(instance=inversion)
+    return render(request, 'editar_inversion.html', {'form': form})
+
+@login_required
+def eliminar_inversion(request, inversion_id):
+    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
+    if request.method == 'POST':
+        inversion.delete()
+        return redirect('lista_inversiones')
+    return render(request, 'confirmar_eliminar_inversion.html', {'inversion': inversion})
 
 @login_required
 def crear_inversion(request):
@@ -482,3 +508,16 @@ def datos_ganancias_mensuales(request):
     labels = [g.mes for g in ganancias]
     data = [g.total for g in ganancias]
     return JsonResponse({'labels': labels, 'data': data})
+
+@login_required
+def iniciar_procesamiento_inversiones(request):
+    """Inicia el procesamiento automático de inversiones."""
+    try:
+        task = process_drive_investments.delay(request.user.id)
+        return JsonResponse({"task_id": task.id}, status=202)
+    except Exception as e:
+        return JsonResponse({"error": f"No se pudo iniciar la tarea: {str(e)}"}, status=400)
+
+@login_required
+def vista_procesamiento_inversiones(request):
+    return render(request, 'procesamiento_inversiones.html')

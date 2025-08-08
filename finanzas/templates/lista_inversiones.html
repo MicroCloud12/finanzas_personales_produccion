@@ -51,6 +51,7 @@
                     <th class="px-5 py-3">Precio Actual</th>
                     <th class="px-5 py-3">Valor Mercado</th>
                     <th class="px-5 py-3">Gan./Pérd. No Realizada</th>
+                    <th class="px-6 py-3">Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -68,10 +69,17 @@
                         <td class="px-5 py-5 bg-white text-sm font-semibold {% if inv.Ganancia_Pérdida_No_Realizada >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
                             ${{ inv.ganancia_perdida_no_realizada|floatformat:2|intcomma }}
                         </td>
+                        <td class="px-5 py-5 bg-white text-sm">
+                            <a href="{% url 'editar_inversion' inv.id %}" class="text-indigo-600 hover:text-indigo-900">Editar</a>
+                            <form action="{% url 'eliminar_inversion' inv.id %}" method="post" class="inline">
+                                {% csrf_token %}
+                                <button type="submit" class="text-red-600 hover:text-red-900 ml-2">Eliminar</button>
+                            </form>
+                        </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="7" class="text-center py-10 text-gray-500">Aún no has registrado ninguna inversión. ¡Añade la primera!</td>
+                        <td colspan="8" class="text-center py-10 text-gray-500">Aún no has registrado ninguna inversión. ¡Añade la primera!</td>
                     </tr>
                 {% endfor %}
             </tbody>

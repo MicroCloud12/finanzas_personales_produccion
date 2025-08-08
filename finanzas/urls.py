@@ -25,14 +25,15 @@ urlpatterns = [
     path('revisar_tickets/', views.revisar_tickets, name='revisar_tickets'),
     path('inversiones/', views.lista_inversiones, name='lista_inversiones'),
     path('inversiones/crear/', views.crear_inversion, name='crear_inversion'),
+    path('inversiones/<int:inversion_id>/editar/', views.editar_inversion, name='editar_inversion'),
+    path('inversiones/<int:inversion_id>/eliminar/', views.eliminar_inversion, name='eliminar_inversion'),
+    path('procesamiento-inversiones/', views.vista_procesamiento_inversiones, name='procesamiento_inversiones'),
+    path('procesar-inversiones/', views.iniciar_procesamiento_inversiones, name='procesar_drive_inversiones'),
     path('suscripcion/', views.gestionar_suscripcion, name='gestionar_suscripcion'),
     path('suscripcion/exitosa/', views.suscripcion_exitosa, name='suscripcion_exitosa'),
     path('suscripcion/fallida/', views.suscripcion_fallida, name='suscripcion_fallida'),
     path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
     path('api/datos-ganancias-mensuales/', views.datos_ganancias_mensuales, name='api_ganancias_mensuales'),
-    #path('api/datos-inversiones/', views.lista_inversiones, name='api_datos_inversiones'),
-    # Esta URL alimenta tu gráfica de ganancias en el dashboard
-    #path('api/datos-ganancias-mensuales/', views.datos_ganancias_mensuales, name='api_ganancias_mensuales'),
-    # Aquí irá el webhook de MercadoPago que configuraremos al final para producción
-    # path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
+    #path('deudas/', views.lista_deudas, name='lista_deudas'),
+    #path('deudas/crear/', views.crear_deuda, name='crear_deuda'),
 ]
