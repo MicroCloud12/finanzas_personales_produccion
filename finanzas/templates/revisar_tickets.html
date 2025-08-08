@@ -67,16 +67,12 @@
                         </td>
                         <td class="px-6 py-4 align-middle">
                             <select name="tipo_{{ ticket.id }}" class="block w-full border-gray-300 rounded-md shadow-sm">
-                                <option>Gasto</option>
-                                <option>Ingreso</option>
-                                <option>Transferencia</option>
+                                {% include 'partials/_ticket_tipo_options.html' %}
                             </select>
                         </td>
                         <td class="px-6 py-4 align-middle">
                             <select name="cuenta_destino_{{ ticket.id }}" class="block w-full border-gray-300 rounded-md shadow-sm">
-                                <option>N/A</option>
-                                <option>Cuenta Ahorro</option>
-                                <option>Inversion</option>
+                                {% include 'partials/_ticket_cuentadestino_options.html' %}
                             </select>
                         </td>
                         <td class="px-6 py-4 align-middle flex items-center space-x-2">
