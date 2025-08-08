@@ -31,6 +31,53 @@ def home(request):
     return render(request, 'index.html')
 
 @login_required
+def aprobar_todos_tickets(request):
+    """
+    Aprueba TODOS los tickets pendientes que estaban en la página, cada uno
+    con su propia configuración seleccionada.
+    """
+    if request.method == 'POST':
+        # Primero, obtenemos una lista de todos los IDs de tickets pendientes del usuario.
+        tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
+        tickets_aprobados_count = 0
+
+        # Iteramos sobre cada ticket pendiente
+        for ticket in tickets_pendientes:
+            # Para cada ticket, construimos los nombres de sus campos de formulario
+            cuenta_key = f'cuenta_origen_{ticket.id}'
+            categoria_key = f'categoria_{ticket.id}'
+            tipo_key = f'tipo_{ticket.id}'
+
+            # Extraemos los datos de ESE ticket en particular del POST
+            cuenta = request.POST.get(cuenta_key)
+            categoria = request.POST.get(categoria_key)
+            tipo = request.POST.get(tipo_key, 'GASTO')
+
+            # Si se proporcionaron los datos necesarios, procesamos el ticket
+            if cuenta and categoria and tipo:
+                TransactionService.approve_pending_transaction(
+                    ticket_id=ticket.id,
+                    user=request.user,
+                    cuenta=cuenta,
+                    categoria=categoria,
+                    tipo_transaccion=tipo
+                )
+                tickets_aprobados_count += 1
+        
+        if tickets_aprobados_count > 0:
+            messages.success(request, f"{tickets_aprobados_count} tickets han sido aprobados correctamente.")
+        else:
+            messages.warning(request, "No se seleccionaron tickets para aprobar o faltaron datos.")
+
+    return redirect('revisar_tickets')
+
+@login_required
+def rechazar_todos_tickets(request):
+    if request.method == 'POST':
+        TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente').update(estado='rechazada')
+    return redirect('revisar_tickets')
+
+@login_required
 def iniciar_procesamiento_drive(request):
     """
     Inicia el proceso de descubrimiento y procesamiento paralelo de tickets.
@@ -46,11 +93,22 @@ def iniciar_procesamiento_drive(request):
 
 @login_required
 def aprobar_ticket(request, ticket_id):
+    """
+    Aprueba un SOLO ticket. Esta vista ahora es más inteligente y sabe
+    buscar los datos específicos de este ticket dentro del gran formulario.
+    """
     if request.method == 'POST':
-        cuenta_seleccionada = request.POST.get('cuenta_origen')
-        categoria_seleccionada = request.POST.get('categoria')
-        tipo_seleccionado = request.POST.get('tipo', 'GASTO') # Valor por defecto 'GASTO'
-        # Usamos el servicio para manejar la aprobación
+        # Construimos los nombres únicos de los campos para este ticket específico
+        cuenta_key = f'cuenta_origen_{ticket_id}'
+        categoria_key = f'categoria_{ticket_id}'
+        tipo_key = f'tipo_{ticket_id}'
+
+        # Extraemos los valores del POST usando esos nombres únicos
+        cuenta_seleccionada = request.POST.get(cuenta_key)
+        categoria_seleccionada = request.POST.get(categoria_key)
+        tipo_seleccionado = request.POST.get(tipo_key, 'GASTO') # 'GASTO' como valor por defecto
+
+        # Usamos el servicio para manejar la aprobación del ticket individual
         TransactionService.approve_pending_transaction(
             ticket_id=ticket_id,
             user=request.user,
@@ -58,6 +116,7 @@ def aprobar_ticket(request, ticket_id):
             categoria=categoria_seleccionada,
             tipo_transaccion=tipo_seleccionado
         )
+        messages.success(request, "Ticket aprobado correctamente.")
         
     return redirect('revisar_tickets')
 
