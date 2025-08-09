@@ -88,3 +88,21 @@ INFO 2025-08-08 13:21:45,020 tasks Gemini processing time for Comprobante_27-jul
 INFO 2025-08-08 13:21:46,543 tasks Gemini processing time for Screenshot_20250728_122042_Mercado Pago.jpg: 9.69s
 INFO 2025-08-08 13:21:47,165 tasks Gemini processing time for Comprobante_28-jul-25-08_15_08.png: 10.64s
 INFO 2025-08-08 13:21:49,312 tasks Gemini processing time for Screenshot_20250728_083649_Santander.jpg: 12.90s
+INFO 2025-08-09 01:43:35,183 tasks Download time for Comprobante_08-ago-25-09_49_04.png: 0.76s
+INFO 2025-08-09 01:43:35,315 tasks Download time for Comprobante_08-ago-25-08_46_14.png: 0.90s
+INFO 2025-08-09 01:43:35,519 tasks Download time for recibo_transferencia.png: 1.10s
+INFO 2025-08-09 01:43:35,670 tasks Download time for Comprobante_08-ago-25-14_25_36.png: 1.26s
+INFO 2025-08-09 01:43:40,743 tasks Gemini processing time for Comprobante_08-ago-25-08_46_14.png: 5.29s
+INFO 2025-08-09 01:43:40,839 tasks Gemini processing time for Comprobante_08-ago-25-14_25_36.png: 5.04s
+INFO 2025-08-09 01:43:41,957 tasks Gemini processing time for Comprobante_08-ago-25-09_49_04.png: 6.60s
+INFO 2025-08-09 01:43:42,111 tasks Gemini processing time for recibo_transferencia.png: 6.37s
+INFO 2025-08-09 01:52:06,804 tasks Download time for 20250808_194952.jpg: 0.70s
+INFO 2025-08-09 01:52:07,166 tasks Download time for Gmail - El recibo de tu pedido de Google Play del 8 ago 2025_page-0001.jpg: 1.06s
+INFO 2025-08-09 01:52:07,229 tasks Download time for 20250808_194929.jpg: 1.13s
+INFO 2025-08-09 01:52:11,804 tasks Gemini processing time for Gmail - El recibo de tu pedido de Google Play del 8 ago 2025_page-0001.jpg: 4.43s
+INFO 2025-08-09 01:52:12,397 tasks Gemini processing time for 20250808_194952.jpg: 5.20s
+INFO 2025-08-09 01:52:13,998 tasks Gemini processing time for 20250808_194929.jpg: 6.45s
+INFO 2025-08-09 01:57:13,788 tasks Download time for Screenshot_20250808_195659_Santander.jpg: 0.62s
+INFO 2025-08-09 01:57:13,808 tasks Download time for Screenshot_20250808_195644_Santander.jpg: 0.64s
+INFO 2025-08-09 01:57:21,041 tasks Gemini processing time for Screenshot_20250808_195659_Santander.jpg: 7.16s
+INFO 2025-08-09 01:57:22,970 tasks Gemini processing time for Screenshot_20250808_195644_Santander.jpg: 9.06s
