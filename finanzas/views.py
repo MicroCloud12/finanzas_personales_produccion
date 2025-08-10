@@ -47,22 +47,23 @@ def aprobar_todos_tickets(request):
             cuenta_key = f'cuenta_origen_{ticket.id}'
             categoria_key = f'categoria_{ticket.id}'
             tipo_key = f'tipo_{ticket.id}'
-            
+            cuenta_destino_key = f'cuenta_destino_{ticket.id}'
 
             # Extraemos los datos de ESE ticket en particular del POST
             cuenta = request.POST.get(cuenta_key)
             categoria = request.POST.get(categoria_key)
             tipo = request.POST.get(tipo_key, 'GASTO')
-
+            cuenta_destino = request.POST.get(cuenta_destino_key)
 
             # Si se proporcionaron los datos necesarios, procesamos el ticket
-            if cuenta and categoria and tipo:
+            if cuenta and categoria and tipo and cuenta_destino:
                 TransactionService.approve_pending_transaction(
                     ticket_id=ticket.id,
                     user=request.user,
                     cuenta=cuenta,
                     categoria=categoria,
                     tipo_transaccion=tipo,
+                    cuenta_destino=cuenta_destino
                 )
                 tickets_aprobados_count += 1
         

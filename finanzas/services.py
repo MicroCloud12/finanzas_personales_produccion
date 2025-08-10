@@ -184,7 +184,7 @@ class TransactionService:
         )
 
     @staticmethod
-    def approve_pending_transaction(ticket_id: int, user: User, cuenta: str, categoria: str, tipo_transaccion: str):
+    def approve_pending_transaction(ticket_id: int, user: User, cuenta: str, categoria: str, tipo_transaccion: str, cuenta_destino: str):
         try:
             ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=user)
             datos = ticket.datos_json
@@ -212,7 +212,8 @@ class TransactionService:
                 categoria=categoria,
                 monto=Decimal(str(datos.get("total", 0.0))), # Convertir a string primero para mayor precisión con Decimal
                 tipo=tipo_transaccion,
-                cuenta_origen=cuenta
+                cuenta_origen=cuenta,
+                cuenta_destino=cuenta_destino,
             )
             
             ticket.estado = 'aprobada'
