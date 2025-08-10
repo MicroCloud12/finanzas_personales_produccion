@@ -176,16 +176,7 @@ def vista_dashboard(request):
         fecha__year=year, 
         fecha__month=month
     )
-    '''
-    ingresos = transacciones.filter(tipo='INGRESO').exclude(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    gastos = transacciones.filter(tipo='GASTO').exclude(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    ahorro_total = transacciones.filter(tipo='INGRESO').filter(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').filter(cuenta_destino = 'Cuenta Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    proviciones = transacciones.filter(tipo='GASTO').exclude(categoria='Ahorro').filter(cuenta_origen = 'Cuenta Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    transferencias = transacciones.filter(tipo='TRANSFERENCIA').exclude(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    inversion_inicial_usd = inversiones.objects.filter(propietario=request.user).aggregate(total=Sum('costo_total_adquisicion'))['total'] or Decimal('0.00')
-    inversion_actual = inversiones.objects.filter(propietario=request.user).aggregate(total=Sum('valor_actual_mercado'))['total'] or Decimal('0.00')
-    retiro_ahorro = transacciones.filter(tipo='GASTO').filter(categoria='Ahorro').filter(cuenta_origen = 'Efectivo Quincena').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    '''
+
     # Hacemos UNA SOLA CONSULTA para obtener todos los totales
     agregados = transacciones.aggregate(
         # Suma de ingresos que no son ahorro y vienen de la quincena
@@ -198,6 +189,8 @@ def vista_dashboard(request):
         proviciones = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
         # Suma de transferencias que no son ahorro y vienen de la quincena
         transferencias_efectivo = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        #
+        gastos_ahorro = Sum('monto', filter=Q(tipo='GASTO') & Q(cuenta_origen='Cuenta Ahorro')),
     )
 
     # Asignamos los valores, usando .get() para manejar resultados nulos de forma segura
@@ -206,6 +199,7 @@ def vista_dashboard(request):
     ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
     proviciones = agregados.get('proviciones') or Decimal('0.00')
     transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
+    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
 
     # Hacemos UNA SOLA CONSULTA para ambos valores
     agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
@@ -219,7 +213,7 @@ def vista_dashboard(request):
 
     balance = ingresos - gastos
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    ahorro = ahorro_total - proviciones
+    ahorro = ahorro_total - proviciones - gastos_ahorro
 
     context = {
         'ingresos': ingresos,
@@ -235,7 +229,6 @@ def vista_dashboard(request):
         'es_usuario_premium': es_usuario_premium,
         'inversion_inicial': inversion_inicial_usd,
         'inversion_actual': inversion_actual,
-        # --- Pasamos los datos del nuevo gráfico ---
         'investment_chart_labels': json.dumps(chart_labels),
         'investment_chart_data': json.dumps(chart_data),
     }
