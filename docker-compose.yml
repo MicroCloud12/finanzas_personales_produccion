@@ -1,6 +1,5 @@
 services:
   db:
-    # ... (esta sección no cambia)
     image: mysql:8.4.3
     volumes:
       - mysql_data:/var/lib/mysql
@@ -11,31 +10,41 @@ services:
       MYSQL_PASSWORD: 'zLf,)uXZma5H0mG5'
     ports:
       - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   web:
     build: .
-    # --- LÍNEA MODIFICADA ---
-    # -k gevent: Usa los trabajadores de tipo gevent.
-    # --timeout 60: Aumenta el tiempo de espera a 60 segundos.
     command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --log-file=-
-    # --- AÑADE ESTO ---
     env_file:
       - .env
+    # --- LÍNEA MODIFICADA ---
+    # Montamos el código Y el volumen de estáticos por separado.
     volumes:
       - .:/app
+      - static_volume:/app/staticfiles  # --- AÑADE ESTA LÍNEA ---
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   redis:
     image: "redis:alpine"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   celery:
     build: .
     command: celery -A config worker -l info
-    # --- AÑADE ESTO ---
     env_file:
       - .env
     volumes:
@@ -44,5 +53,7 @@ services:
       - db
       - redis
 
+# --- AÑADE TODA ESTA SECCIÓN AL FINAL DEL ARCHIVO ---
 volumes:
   mysql_data:
+  static_volume: # Define el volumen nombrado que usaremos
