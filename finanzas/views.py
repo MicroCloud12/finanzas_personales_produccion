@@ -194,7 +194,9 @@ def vista_dashboard(request):
         # Suma de transferencias que no son ahorro y vienen de la quincena
         transferencias_efectivo = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
         #
-        gastos_ahorro = Sum('monto', filter=Q(tipo='GASTO') & Q(cuenta_origen='Cuenta Ahorro')),
+        gastos_ahorro = Sum('monto', filter=Q(tipo='GASTO') & Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
+        # Suma de ingresos que son ahorro y vienen de la quincena
+        ingresos_ahorro = Sum('monto', filter=Q(tipo='INGRESO') & Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
     )
 
     # Asignamos los valores, usando .get() para manejar resultados nulos de forma segura
@@ -204,6 +206,7 @@ def vista_dashboard(request):
     proviciones = agregados.get('proviciones') or Decimal('0.00')
     transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
     gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
+    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
 
     # Hacemos UNA SOLA CONSULTA para ambos valores
     agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
@@ -217,7 +220,7 @@ def vista_dashboard(request):
 
     balance = ingresos - gastos
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    ahorro = ahorro_total - proviciones - gastos_ahorro
+    ahorro = ahorro_total - proviciones - gastos_ahorro + ingresos_ahorro
 
     context = {
         'ingresos': ingresos,
