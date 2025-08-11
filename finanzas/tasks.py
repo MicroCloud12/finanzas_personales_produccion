@@ -22,7 +22,8 @@ def load_and_optimize_image(file_content, max_width: int = 1024, quality: int = 
     return Image.open(buffer)
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
+#def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
+def process_single_ticket(self, user_id: int, file_id: str, file_name: str, mime_type: str):
     """
     Procesa un único ticket: lo descarga, lo analiza con Gemini y lo guarda como pendiente.
     Utiliza los servicios para abstraer la lógica.
@@ -42,11 +43,21 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str):
         #image = Image.open(file_content)
         download_time = time.perf_counter() - start_download
         logger.info("Download time for %s: %.2fs", file_name, download_time)
-        image = load_and_optimize_image(file_content)
+        #image = load_and_optimize_image(file_content)
 
         # 3. Extraer datos con Gemini
-        start_gemini = time.perf_counter()
-        extracted_data = gemini_service.extract_data_from_image(image)
+        #start_gemini = time.perf_counter()
+        #extracted_data = gemini_service.extract_data_from_image(image)
+        if mime_type in ('image/jpeg', 'image/png'):
+            image = load_and_optimize_image(file_content)
+            start_gemini = time.perf_counter()
+            extracted_data = gemini_service.extract_data_from_image(image)
+        elif mime_type == 'application/pdf':
+            start_gemini = time.perf_counter()
+            extracted_data = gemini_service.extract_data_from_pdf(file_content.getvalue())
+        else:
+            return {'status': 'UNSUPPORTED', 'file_name': file_name, 'error': 'Unsupported file type'}
+        
         gemini_time = time.perf_counter() - start_gemini
         logger.info("Gemini processing time for %s: %.2fs", file_name, gemini_time)
 
@@ -77,14 +88,14 @@ def process_drive_tickets(user_id: int):
         gdrive_service = GoogleDriveService(user)
         files_to_process = gdrive_service.list_files_in_folder(
             folder_name="Tickets de Compra", 
-            mimetypes=['image/jpeg', 'image/png']
+            mimetypes=['image/jpeg', 'image/png', 'application/pdf']
         )
 
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
 
         job = group(
-            process_single_ticket.s(user.id, item['id'], item['name'])
+            process_single_ticket.s(user.id, item['id'], item['name'], item['mimeType'])
             for item in files_to_process
         )
         
@@ -101,8 +112,8 @@ def process_drive_tickets(user_id: int):
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def process_single_inversion(self, user_id: int, file_id: str, file_name: str):
-    """Procesa una imagen de inversión y crea el registro correspondiente."""
+def process_single_inversion(self, user_id: int, file_id: str, file_name: str, mime_type: str):
+    """Procesa una inversión (imagen o PDF) y crea el registro correspondiente."""
     try:
         user = User.objects.get(id=user_id)
         gdrive_service = GoogleDriveService(user)
@@ -110,8 +121,16 @@ def process_single_inversion(self, user_id: int, file_id: str, file_name: str):
         investment_service = InvestmentService()
 
         file_content = gdrive_service.get_file_content(file_id)
-        image = Image.open(file_content)
-        extracted_data = gemini_service.extract_data_from_inversion(image)
+        #image = Image.open(file_content)
+        #extracted_data = gemini_service.extract_data_from_inversion(image)
+        if mime_type in ('image/jpeg', 'image/png'):
+            image = Image.open(file_content)
+            extracted_data = gemini_service.extract_data_from_inversion(image)
+        elif mime_type == 'application/pdf':
+            extracted_data = gemini_service.extract_inversion_from_pdf(file_content.getvalue())
+        else:
+            return {'status': 'UNSUPPORTED', 'file_name': file_name, 'error': 'Unsupported file type'}
+        
         investment_service.create_investment(user, extracted_data)
 
         return {'status': 'SUCCESS', 'file_name': file_name}
@@ -130,14 +149,14 @@ def process_drive_investments(user_id: int):
         gdrive_service = GoogleDriveService(user)
         files_to_process = gdrive_service.list_files_in_folder(
             folder_name="Inversiones",
-            mimetypes=['image/jpeg', 'image/png'],
+            mimetypes=['image/jpeg', 'image/png', 'application/pdf'],
         )
 
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No se encontraron nuevas inversiones.'}
 
         job = group(
-            process_single_inversion.s(user.id, item['id'], item['name'])
+            process_single_inversion.s(user.id, item['id'], item['name'], item['mimeType'])
             for item in files_to_process
         )
 

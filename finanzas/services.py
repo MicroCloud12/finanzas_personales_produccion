@@ -1,8 +1,7 @@
 # finanzas/services.py
 import os
 import json
-import time
-import requests
+import base64
 import mercadopago
 from PIL import Image
 from io import BytesIO
@@ -60,7 +59,7 @@ class GoogleDriveService:
         query = f"'{folder_id}' in parents and ({mime_query}) and trashed=false"
         
         try:
-            results = self.service.files().list(q=query, fields="files(id, name)").execute()
+            results = self.service.files().list(q=query, fields="files(id, name, mimeType)").execute()
             return results.get('files', [])
         except HttpError as error:
             print(f"Ocurrió un error al listar archivos: {error}")
@@ -128,9 +127,12 @@ class GeminiService:
         self.prompt_inversion = """
             
         """
-    def extract_data_from_image(self, image: Image.Image) -> dict:
+    #def extract_data_from_image(self, image: Image.Image) -> dict:
         # ... (el resto de la función no cambia)
-        response = self.model.generate_content([self.prompt_tickets, image])
+        #response = self.model.generate_content([self.prompt_tickets, image])
+    def _generate_and_parse(self, prompt: str, content) -> dict:
+        """Genera la respuesta de Gemini y devuelve el JSON parseado."""
+        response = self.model.generate_content([prompt, content])
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
         
         try:
@@ -142,11 +144,13 @@ class GeminiService:
                 "error": "Respuesta no válida de la IA",
                 "raw_response": cleaned_response
             }
-        
+    def extract_data_from_image(self, image: Image.Image) -> dict:
+        return self._generate_and_parse(self.prompt_tickets, image)
+    
     def extract_data_from_inversion(self, image: Image.Image) -> dict:
         """
         Extrae datos de una imagen de inversión utilizando Gemini.
-        """
+        
         # Aquí podrías usar un prompt diferente si es necesario
         response = self.model.generate_content([self.prompt_inversion, image])
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
@@ -159,6 +163,29 @@ class GeminiService:
                 "error": "Respuesta no válida de la IA",
                 "raw_response": cleaned_response
             }
+        """
+        return self._generate_and_parse(self.prompt_inversion, image)
+    
+    def extract_data_from_pdf(self, pdf_bytes: bytes) -> dict:
+        """Extrae datos de un PDF utilizando Gemini."""
+        pdf_part = {
+            "inline_data": {
+                "mime_type": "application/pdf",
+                "data": base64.b64encode(pdf_bytes).decode("utf-8"),
+            }
+        }
+        return self._generate_and_parse(self.prompt_tickets, pdf_part)
+
+    def extract_inversion_from_pdf(self, pdf_bytes: bytes) -> dict:
+        """Extrae datos de un PDF de inversión utilizando Gemini."""
+        pdf_part = {
+            "inline_data": {
+                "mime_type": "application/pdf",
+                "data": base64.b64encode(pdf_bytes).decode("utf-8"),
+            }
+        }
+        return self._generate_and_parse(self.prompt_inversion, pdf_part)
+    
 _gemini_singleton = None
 def get_gemini_service() -> GeminiService:
     """Obtiene una instancia única de :class:`GeminiService` por proceso."""
