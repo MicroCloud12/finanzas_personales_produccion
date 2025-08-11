@@ -105,11 +105,13 @@ def aprobar_ticket(request, ticket_id):
         cuenta_key = f'cuenta_origen_{ticket_id}'
         categoria_key = f'categoria_{ticket_id}'
         tipo_key = f'tipo_{ticket_id}'
+        cuenta_destino_key = f'cuenta_destino_{ticket_id}'
 
         # Extraemos los valores del POST usando esos nombres únicos
         cuenta_seleccionada = request.POST.get(cuenta_key)
         categoria_seleccionada = request.POST.get(categoria_key)
         tipo_seleccionado = request.POST.get(tipo_key, 'GASTO') # 'GASTO' como valor por defecto
+        cuenta_destino_seleccionada = request.POST.get(cuenta_destino_key)
 
         # Usamos el servicio para manejar la aprobación del ticket individual
         TransactionService.approve_pending_transaction(
@@ -117,7 +119,8 @@ def aprobar_ticket(request, ticket_id):
             user=request.user,
             cuenta=cuenta_seleccionada,
             categoria=categoria_seleccionada,
-            tipo_transaccion=tipo_seleccionado
+            tipo_transaccion=tipo_seleccionado,
+            cuenta_destino=cuenta_destino_seleccionada
         )
         messages.success(request, "Ticket aprobado correctamente.")
         
