@@ -25,7 +25,8 @@ services:
     # Montamos el código Y el volumen de estáticos por separado.
     volumes:
       - .:/app
-      - static_volume:/app/staticfiles  # --- AÑADE ESTA LÍNEA ---
+      #- static_volume:/app/staticfiles   --- AÑADE ESTA LÍNEA ---
+      - ./staticfiles:/app/staticfiles
     ports:
       - "8000:8000"
     depends_on:
@@ -56,4 +57,4 @@ services:
 # --- AÑADE TODA ESTA SECCIÓN AL FINAL DEL ARCHIVO ---
 volumes:
   mysql_data:
-  static_volume: # Define el volumen nombrado que usaremos
+  #static_volume: # Define el volumen nombrado que usaremos
