@@ -220,7 +220,7 @@ def vista_dashboard(request):
 
     balance = ingresos - gastos
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    ahorro = ahorro_total - proviciones - gastos_ahorro + ingresos_ahorro
+    ahorro = ahorro_total - proviciones - gastos_ahorro
 
     context = {
         'ingresos': ingresos,
