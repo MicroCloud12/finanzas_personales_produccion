@@ -1,6 +1,6 @@
 import time
 from decimal import Decimal
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from finanzas.models import inversiones
 from finanzas.services import StockPriceService
 
@@ -10,10 +10,10 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         self.stdout.write(self.style.SUCCESS('🚀 Iniciando la actualización de precios de inversiones...'))
         
-        # Obtenemos todas las inversiones que son de tipo 'Acción'
-        investment_list = inversiones.objects.filter()
-        
-        if not investment_list:
+                # Obtenemos todas las inversiones y los tickers únicos
+        investment_qs = inversiones.objects.exclude(emisora_ticker__isnull=True).exclude(emisora_ticker="")
+
+        if not investment_qs:
             self.stdout.write(self.style.WARNING('No se encontraron inversiones de tipo "Acción" para actualizar.'))
             return
 
@@ -21,23 +21,28 @@ class Command(BaseCommand):
         updated_count = 0
         
         # Iteramos sobre cada inversión
-        for investment in investment_list:
-            ticker = investment.emisora_ticker
-            if not ticker:
-                continue # Saltamos si no tiene un ticker
+        #for investment in investment_list:
+        #    ticker = investment.emisora_ticker
+        #    if not ticker:
+        #        continue # Saltamos si no tiene un ticker
+        unique_tickers = investment_qs.values_list("emisora_ticker", flat=True).distinct()
 
+        for ticker in unique_tickers:
             self.stdout.write(f'  - Obteniendo precio para {ticker}...', ending='')
-            
-            # Obtenemos el precio desde nuestro servicio
             new_price_float = price_service.get_current_price(ticker)
             
             if new_price_float is not None:
-                # Convertimos a Decimal y actualizamos el modelo
-                investment.precio_actual_titulo = Decimal(str(new_price_float))
-                investment.save() # .save() recalculará el valor de mercado y la ganancia/pérdida
+                decimal_price = Decimal(str(new_price_float))
+                investments_with_ticker = investment_qs.filter(emisora_ticker=ticker)
+                for investment in investments_with_ticker:
+                    investment.precio_actual_titulo = decimal_price
+                    investment.save()  # Recalcula los campos dependientes
+                    updated_count += 1
                 
-                self.stdout.write(self.style.SUCCESS(f' ¡Actualizado a ${new_price_float:.2f}!'))
-                updated_count += 1
+                self.style.SUCCESS(
+                        f" ¡Actualizado a ${new_price_float:.2f}!"
+                    )
+                
             else:
                 self.stdout.write(self.style.ERROR(' ¡Falló!'))
 
@@ -45,4 +50,4 @@ class Command(BaseCommand):
             # Añadimos una pausa de 15 segundos para no exceder el límite.
             time.sleep(15)
 
-        self.stdout.write(self.style.SUCCESS(f'\n✅ Proceso completado. Se actualizaron {updated_count} de {len(investment_list)} inversiones.'))
+        f"\n✅ Proceso completado. Se actualizaron {updated_count} de {investment_qs.count()} inversiones."
