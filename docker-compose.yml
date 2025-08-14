@@ -58,3 +58,20 @@ services:
 volumes:
   mysql_data:
   #static_volume: # Define el volumen nombrado que usaremos
+
+
+cron:
+    build: .
+    command: /app/cron_job.sh
+    volumes:
+      - .:/app
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=${DB_PORT}
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=${DEBUG}
+    depends_on:
+      - db

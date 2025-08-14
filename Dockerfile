@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
 # Establece el directorio de trabajo
 WORKDIR /app
 
+RUN chmod +x /app/cron_job.sh
+
 # Copia e instala las dependencias de Python
 COPY requirements.txt .
 RUN pip install gunicorn whitenoise[brotli]
