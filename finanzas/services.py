@@ -17,7 +17,7 @@ from googleapiclient.errors import HttpError
 #from alpha_vantage.timeseries import TimeSeries
 from google.oauth2.credentials import Credentials
 from allauth.socialaccount.models import SocialApp, SocialToken
-from .models import registro_transacciones, TransaccionPendiente, User, inversiones
+from .models import registro_transacciones, TransaccionPendiente, User, inversiones, PendingInvestment
 
 class GoogleDriveService:
     # ... (esta clase no cambia)
@@ -140,7 +140,7 @@ class GeminiService:
 
             ### REGLAS DE EXTRACCIÓN:
             1.  **fecha_compra**: Extrae la fecha principal de la operación en formato AÑO-MES-DÍA.
-            2.  **emisora_ticker**: El símbolo de la acción o criptomoneda (ej. NVDA, AAPL, BTC, ETH).
+            2.  **emisora_ticker**: El símbolo de la acción o criptomoneda (ej. NVDA, AAPL, BTC/USD, ETH/USD).
             3.  **nombre_activo**: El nombre completo. Si la imagen solo muestra el ticker (ej. "NVDA"), infiere el nombre de la empresa (ej. "NVIDIA").
             4.  **cantidad_titulos**: El número de acciones o unidades de cripto. Debe ser un número decimal (float).
             5.  **precio_por_titulo**: El costo de cada título o unidad. Debe ser un número.
@@ -409,12 +409,14 @@ class InvestmentService:
             print(f"No se creará inversión debido a un error previo: {data['error']}")
             return None
 
-        ticker = (data.get("ticker") or "").upper()
+        ticker = (data.get("emisora_ticker") or data.get("ticker") or "").upper()
         nombre = data.get("nombre_activo") or ticker
         tipo_inversion = data.get("tipo_inversion", "ACCION")
-        cantidad = Decimal(str(data.get("cantidad", 0)))
-        precio_compra = Decimal(str(data.get("precio", 0)))
-        fecha = parse_date_safely(data.get("fecha"))
+        cantidad = Decimal(str(data.get("cantidad_titulos") or data.get("cantidad") or 0))
+        precio_compra = Decimal(str(data.get("precio_por_titulo") or data.get("precio") or 0))
+        fecha = parse_date_safely(data.get("fecha_compra") or data.get("fecha"))
+        tipo_cambio = data.get("tipo_cambio_usd")
+        tipo_cambio = Decimal(str(tipo_cambio)) if tipo_cambio is not None else None
 
         price_service = StockPriceService()
         try:
@@ -432,5 +434,21 @@ class InvestmentService:
             fecha_compra=fecha,
             precio_compra_titulo=precio_compra,
             precio_actual_titulo=precio_actual,
-            tipo_cambio_compra=None,
+            tipo_cambio_compra=tipo_cambio,
+        )
+    
+    @staticmethod
+    def create_pending_investment(user: User, data: dict):
+        """
+        Crea un registro de inversión pendiente a partir de los datos extraídos por la IA.
+        """
+        if "error" in data:
+            print(f"No se creará inversión pendiente debido a un error previo: {data['error']}")
+            return None
+        
+        # Simplemente guardamos los datos crudos para revisarlos después.
+        return PendingInvestment.objects.create(
+            propietario=user,
+            datos_json=data,
+            estado='pendiente'
         )

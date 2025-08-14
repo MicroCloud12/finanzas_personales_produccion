@@ -117,12 +117,10 @@ def process_single_inversion(self, user_id: int, file_id: str, file_name: str, m
     try:
         user = User.objects.get(id=user_id)
         gdrive_service = GoogleDriveService(user)
-        gemini_service = GeminiService()
+        gemini_service = get_gemini_service()
         investment_service = InvestmentService()
 
         file_content = gdrive_service.get_file_content(file_id)
-        #image = Image.open(file_content)
-        #extracted_data = gemini_service.extract_data_from_inversion(image)
         if mime_type in ('image/jpeg', 'image/png'):
             image = Image.open(file_content)
             extracted_data = gemini_service.extract_data_from_inversion(image)
@@ -131,7 +129,7 @@ def process_single_inversion(self, user_id: int, file_id: str, file_name: str, m
         else:
             return {'status': 'UNSUPPORTED', 'file_name': file_name, 'error': 'Unsupported file type'}
         
-        investment_service.create_investment(user, extracted_data)
+        investment_service.create_pending_investment(user, extracted_data)
 
         return {'status': 'SUCCESS', 'file_name': file_name}
     except ConnectionError as e:
@@ -142,26 +140,33 @@ def process_single_inversion(self, user_id: int, file_id: str, file_name: str, m
         return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
 
 @shared_task
-def process_drive_investments(user_id: int):
-    """Obtiene las imágenes de inversiones y lanza tareas paralelas para procesarlas."""
+def process_drive_investments(user_id):
+    """
+    Tarea para procesar TODOS los archivos de la carpeta 'Inversiones'.
+    """
     try:
         user = User.objects.get(id=user_id)
         gdrive_service = GoogleDriveService(user)
         files_to_process = gdrive_service.list_files_in_folder(
             folder_name="Inversiones",
-            mimetypes=['image/jpeg', 'image/png', 'application/pdf'],
+            mimetypes=['image/jpeg', 'image/png', 'application/pdf']
         )
 
         if not files_to_process:
-            return {'status': 'NO_FILES', 'message': 'No se encontraron nuevas inversiones.'}
+            return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
 
         job = group(
             process_single_inversion.s(user.id, item['id'], item['name'], item['mimeType'])
             for item in files_to_process
         )
-
+        
         result_group = job.apply_async()
-        result_group.save()
+        result_group.save() # ¡Esto es clave! Guarda el estado del grupo en el backend de resultados.
+
+        # --- CAMBIO IMPORTANTE ---
+        # Devolvemos el ID del grupo para que el frontend pueda monitorearlo.
         return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(files_to_process)}
+
     except Exception as e:
+        # Manejo de errores
         return {'status': 'ERROR', 'message': str(e)}

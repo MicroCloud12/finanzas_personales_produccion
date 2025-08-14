@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.contrib import messages
 from django.http import JsonResponse
 from django.contrib.auth import login
+from .utils import parse_date_safely
 from .tasks import process_drive_tickets, process_drive_investments
 from datetime import datetime, timedelta
 from django.db.models import Sum
@@ -20,16 +21,39 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
-from .services import TransactionService, MercadoPagoService, StockPriceService
-from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm
-from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual
+from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm 
+from .services import TransactionService, MercadoPagoService, StockPriceService, InvestmentService
+from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment
 
 logger = logging.getLogger(__name__)
 
-
+'''
+Vista de inicio, redirige a la página de inicio,
+inicio de sesión y registro.
+'''
 def home(request):
     return render(request, 'index.html')
 
+def iniciosesion(request):
+    return render(request, 'dashboard.html')
+
+def registro(request):
+    if request.method == 'POST':
+        form = FormularioRegistroPersonalizado(request.POST)
+
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            return redirect('dashboard')
+    else:
+        form = FormularioRegistroPersonalizado()
+    
+    context = {'form': form}
+    return render(request, 'registro.html', context)
+
+'''
+Views relacionadas a las trabsacciones
+'''
 @login_required
 def aprobar_todos_tickets(request):
     """
@@ -81,20 +105,6 @@ def rechazar_todos_tickets(request):
     return redirect('revisar_tickets')
 
 @login_required
-def iniciar_procesamiento_drive(request):
-    """
-    Inicia el proceso de descubrimiento y procesamiento paralelo de tickets.
-    """
-    try:
-        # La lógica de token ahora está dentro del servicio, pero la vista
-        # debe asegurarse de que la tarea se inicie.
-        task = process_drive_tickets.delay(request.user.id)
-        return JsonResponse({"task_id": task.id}, status=202)
-    except Exception as e:
-        # Captura errores generales durante el inicio de la tarea
-        return JsonResponse({"error": f"No se pudo iniciar la tarea: {str(e)}"}, status=400)
-
-@login_required
 def aprobar_ticket(request, ticket_id):
     """
     Aprueba un SOLO ticket. Esta vista ahora es más inteligente y sabe
@@ -125,121 +135,6 @@ def aprobar_ticket(request, ticket_id):
         messages.success(request, "Ticket aprobado correctamente.")
         
     return redirect('revisar_tickets')
-
-def iniciosesion(request):
-    return render(request, 'dashboard.html')
-
-def registro(request):
-    if request.method == 'POST':
-        form = FormularioRegistroPersonalizado(request.POST)
-
-        if form.is_valid():
-            user = form.save()
-            login(request, user)
-            return redirect('dashboard')
-    else:
-        form = FormularioRegistroPersonalizado()
-    
-    context = {'form': form}
-    return render(request, 'registro.html', context)
-
-@login_required
-def vista_dashboard(request):
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    # --- LÓGICA PARA LA GRÁFICA DE LÍNEAS ---
-    # Obtenemos todas las compras de inversiones del usuario, ordenadas por fecha
-    compras = inversiones.objects.filter(propietario=request.user).order_by('fecha_compra')
-
-    chart_labels = []
-    chart_data = []
-    capital_acumulado = Decimal('0.0')
-
-    # Agrupamos las compras por día y calculamos el capital acumulado
-    compras_por_dia = {}
-    for compra in compras:
-        fecha_str = compra.fecha_compra.strftime('%Y-%m-%d')
-        if fecha_str not in compras_por_dia:
-            compras_por_dia[fecha_str] = Decimal('0.0')
-        compras_por_dia[fecha_str] += compra.costo_total_adquisicion
-
-    # Ordenamos las fechas y construimos los datos del gráfico
-    fechas_ordenadas = sorted(compras_por_dia.keys())
-    for fecha in fechas_ordenadas:
-        capital_acumulado += compras_por_dia[fecha]
-        chart_labels.append(fecha)
-        chart_data.append(str(capital_acumulado))
-    # ----------------------------------------------
-    # Verificamos si la suscripción está activa con nuestro método del modelo.
-    es_usuario_premium = suscripcion.is_active()
-    current_year = datetime.now().year
-    current_month = datetime.now().month
-    year = int(request.GET.get('year', current_year))
-    month = int(request.GET.get('month', current_month))
-    transacciones = registro_transacciones.objects.filter(
-        propietario=request.user, 
-        fecha__year=year, 
-        fecha__month=month
-    )
-
-    # Hacemos UNA SOLA CONSULTA para obtener todos los totales
-    agregados = transacciones.aggregate(
-        # Suma de ingresos que no son ahorro y vienen de la quincena
-        ingresos_efectivo = Sum('monto',filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        # Suma de gastos que no son ahorro y vienen de la quincena
-        gastos_efectivo = Sum('monto',filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        #Suma de Ahorro total que es ingreso de la quincena a la cuenta de ahorro
-        ahorro_total = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena') & Q(cuenta_destino='Cuenta Ahorro')),
-        #
-        proviciones = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
-        # Suma de transferencias que no son ahorro y vienen de la quincena
-        transferencias_efectivo = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        #
-        gastos_ahorro = Sum('monto', filter=Q(tipo='GASTO') & Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
-        # Suma de ingresos que son ahorro y vienen de la quincena
-        ingresos_ahorro = Sum('monto', filter=Q(tipo='INGRESO') & Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
-    )
-
-    # Asignamos los valores, usando .get() para manejar resultados nulos de forma segura
-    ingresos = agregados.get('ingresos_efectivo') or Decimal('0.00')
-    gastos = agregados.get('gastos_efectivo') or Decimal('0.00')
-    ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
-    proviciones = agregados.get('proviciones') or Decimal('0.00')
-    transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
-    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
-    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
-
-    # Hacemos UNA SOLA CONSULTA para ambos valores
-    agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
-        total_inicial=Sum('costo_total_adquisicion'),
-        total_actual=Sum('valor_actual_mercado')
-    )
-
-    # Asignamos los valores
-    inversion_inicial_usd = agregados_inversion.get('total_inicial') or Decimal('0.00')
-    inversion_actual = agregados_inversion.get('total_actual') or Decimal('0.00')
-
-    balance = ingresos - gastos
-    disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    ahorro = ahorro_total - proviciones - gastos_ahorro + ingresos_ahorro
-
-    context = {
-        'ingresos': ingresos,
-        'gastos': gastos,
-        'balance': balance,
-        'transferencias':transferencias,
-        'disponible_banco':disponible_banco,
-        'ahorro': ahorro,
-        'selected_year': year,
-        'selected_month': month,
-        'years': range(current_year, current_year - 5, -1),
-        'months': range(1, 13),
-        'es_usuario_premium': es_usuario_premium,
-        'inversion_inicial': inversion_inicial_usd,
-        'inversion_actual': inversion_actual,
-        'investment_chart_labels': json.dumps(chart_labels),
-        'investment_chart_data': json.dumps(chart_data),
-    }
-    return render(request, 'dashboard.html', context)
 
 @login_required
 def crear_transacciones(request):
@@ -300,6 +195,136 @@ def eliminar_transaccion(request, transaccion_id):
     return render(request, 'confirmar_eliminar_transaccion.html', {'transaccion': transaccion})
 
 @login_required
+def revisar_tickets(request):
+    tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
+    return render(request, 'revisar_tickets.html', {'tickets': tickets_pendientes})
+
+@login_required
+def rechazar_ticket(request, ticket_id):
+    ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=request.user)
+    ticket.estado = 'rechazada'
+    ticket.save()
+    return redirect('revisar_tickets')
+'''
+Vista para procesar automáticamente los tickets de Drive.
+'''
+@login_required
+def iniciar_procesamiento_drive(request):
+    """
+    Inicia el proceso de descubrimiento y procesamiento paralelo de tickets.
+    """
+    try:
+        # La lógica de token ahora está dentro del servicio, pero la vista
+        # debe asegurarse de que la tarea se inicie.
+        task = process_drive_tickets.delay(request.user.id)
+        return JsonResponse({"task_id": task.id}, status=202)
+    except Exception as e:
+        # Captura errores generales durante el inicio de la tarea
+        return JsonResponse({"error": f"No se pudo iniciar la tarea: {str(e)}"}, status=400)
+
+'''
+vista para los Dashboards y gráficas de transacciones 
+y ganancias mensuales, e inversiones.
+'''
+@login_required
+def vista_dashboard(request):
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    # --- LÓGICA PARA LA GRÁFICA DE LÍNEAS ---
+    # Obtenemos todas las compras de inversiones del usuario, ordenadas por fecha
+    compras = inversiones.objects.filter(propietario=request.user).order_by('fecha_compra')
+
+    chart_labels = []
+    chart_data = []
+    capital_acumulado = Decimal('0.0')
+
+    # Agrupamos las compras por día y calculamos el capital acumulado
+    compras_por_dia = {}
+    for compra in compras:
+        fecha_str = compra.fecha_compra.strftime('%Y-%m-%d')
+        if fecha_str not in compras_por_dia:
+            compras_por_dia[fecha_str] = Decimal('0.0')
+        compras_por_dia[fecha_str] += compra.costo_total_adquisicion
+
+    # Ordenamos las fechas y construimos los datos del gráfico
+    fechas_ordenadas = sorted(compras_por_dia.keys())
+    for fecha in fechas_ordenadas:
+        capital_acumulado += compras_por_dia[fecha]
+        chart_labels.append(fecha)
+        chart_data.append(str(capital_acumulado))
+    # ----------------------------------------------
+    # Verificamos si la suscripción está activa con nuestro método del modelo.
+    es_usuario_premium = suscripcion.is_active()
+    current_year = datetime.now().year
+    current_month = datetime.now().month
+    year = int(request.GET.get('year', current_year))
+    month = int(request.GET.get('month', current_month))
+    transacciones = registro_transacciones.objects.filter(
+        propietario=request.user, 
+        fecha__year=year, 
+        fecha__month=month
+    )
+
+    # Hacemos UNA SOLA CONSULTA para obtener todos los totales
+    agregados = transacciones.aggregate(
+        # Suma de ingresos que no son ahorro y vienen de la quincena
+        ingresos_efectivo = Sum('monto',filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        # Suma de gastos que no son ahorro y vienen de la quincena
+        gastos_efectivo = Sum('monto',filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        #Suma de Ahorro total que es ingreso de la quincena a la cuenta de ahorro
+        ahorro_total = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena') & Q(cuenta_destino='Cuenta Ahorro')),
+        #
+        proviciones = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
+        # Suma de transferencias que no son ahorro y vienen de la quincena
+        transferencias_efectivo = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        #
+        gastos_ahorro = Sum('monto', filter=Q(tipo='GASTO')  & Q(cuenta_origen='Cuenta Ahorro')),
+        # Suma de ingresos que son ahorro y vienen de la quincena
+        ingresos_ahorro = Sum('monto', filter=Q(tipo='INGRESO') & Q(cuenta_origen='Cuenta Ahorro')),
+    )
+
+    # Asignamos los valores, usando .get() para manejar resultados nulos de forma segura
+    ingresos = agregados.get('ingresos_efectivo') or Decimal('0.00')
+    gastos = agregados.get('gastos_efectivo') or Decimal('0.00')
+    ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
+    proviciones = agregados.get('proviciones') or Decimal('0.00')
+    transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
+    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
+    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
+
+    # Hacemos UNA SOLA CONSULTA para ambos valores
+    agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
+        total_inicial=Sum('costo_total_adquisicion'),
+        total_actual=Sum('valor_actual_mercado')
+    )
+
+    # Asignamos los valores
+    inversion_inicial_usd = agregados_inversion.get('total_inicial') or Decimal('0.00')
+    inversion_actual = agregados_inversion.get('total_actual') or Decimal('0.00')
+
+    balance = ingresos - gastos
+    disponible_banco = ingresos - gastos - transferencias - ahorro_total
+    ahorro = ahorro_total - proviciones - gastos_ahorro + ingresos_ahorro
+
+    context = {
+        'ingresos': ingresos,
+        'gastos': gastos,
+        'balance': balance,
+        'transferencias':transferencias,
+        'disponible_banco':disponible_banco,
+        'ahorro': ahorro,
+        'selected_year': year,
+        'selected_month': month,
+        'years': range(current_year, current_year - 5, -1),
+        'months': range(1, 13),
+        'es_usuario_premium': es_usuario_premium,
+        'inversion_inicial': inversion_inicial_usd,
+        'inversion_actual': inversion_actual,
+        'investment_chart_labels': json.dumps(chart_labels),
+        'investment_chart_data': json.dumps(chart_data),
+    }
+    return render(request, 'dashboard.html', context)
+
+@login_required
 def datos_gastos_categoria(request):
     year = int(request.GET.get('year', datetime.now().year))
     month = int(request.GET.get('month', datetime.now().month))
@@ -333,13 +358,23 @@ def datos_flujo_dinero(request):
     return JsonResponse(data)
 
 @login_required
-def vista_procesamiento_automatico(request):
-    return render(request, 'procesamiento_automatico.html')
+def datos_ganancias_mensuales(request):
+    """Retorna las ganancias mensuales acumuladas de las inversiones del usuario.
+    profits = calculate_monthly_profit(request.user)
+    labels = list(profits.keys())
+    data = [profits[month] for month in labels]
+    return JsonResponse({'labels': labels, 'data': data})
+    """
+    ganancias = GananciaMensual.objects.filter(
+        propietario=request.user
+    ).order_by('mes')
+    labels = [g.mes for g in ganancias]
+    data = [g.total for g in ganancias]
+    return JsonResponse({'labels': labels, 'data': data})
 
 @login_required
-def revisar_tickets(request):
-    tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-    return render(request, 'revisar_tickets.html', {'tickets': tickets_pendientes})
+def vista_procesamiento_automatico(request):
+    return render(request, 'procesamiento_automatico.html')
 
 @login_required
 def get_initial_task_result(request, task_id):
@@ -382,94 +417,9 @@ def get_group_status(request, group_id):
         logger.error(f"Error en get_group_status: {e}")
         return JsonResponse({"status": "FAILURE", "info": str(e)}, status=500)
      
-@login_required
-def rechazar_ticket(request, ticket_id):
-    ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=request.user)
-    ticket.estado = 'rechazada'
-    ticket.save()
-    return redirect('revisar_tickets')
-
-@login_required
-def lista_inversiones(request):
-    """
-    Muestra todas las inversiones del usuario logueado.
-    """
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
-    es_usuario_premium = suscripcion.is_active()
-    context = {'inversiones': lista, 'es_usuario_premium': es_usuario_premium}
-    return render(request, 'lista_inversiones.html', context)
-
-@login_required
-def editar_inversion(request, inversion_id):
-    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
-    if request.method == 'POST':
-        form = InversionForm(request.POST, instance=inversion)
-        if form.is_valid():
-            form.save()
-            return redirect('lista_inversiones')
-    else:
-        form = InversionForm(instance=inversion)
-    return render(request, 'editar_inversion.html', {'form': form})
-
-@login_required
-def eliminar_inversion(request, inversion_id):
-    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
-    if request.method == 'POST':
-        inversion.delete()
-        return redirect('lista_inversiones')
-    return render(request, 'confirmar_eliminar_inversion.html', {'inversion': inversion})
-
-@login_required
-def crear_inversion(request):
-    """
-    Maneja la creación de una nueva inversión, obteniendo el precio actual de una API.
-    """
-    if request.method == 'POST':
-        form = InversionForm(request.POST)
-        if form.is_valid():
-            nueva_inversion = form.save(commit=False)
-            nueva_inversion.propietario = request.user
-            price_service = StockPriceService()
-            ticker = form.cleaned_data.get('emisora_ticker').upper()
-
-            # Obtenemos el precio como float desde el servicio
-            precio_actual_float = price_service.get_current_price(ticker)
-            
-            # --- PASO 2: AQUÍ ESTÁ LA CORRECCIÓN ---
-            if precio_actual_float is not None:
-                # Convertimos el float a un Decimal antes de asignarlo al modelo
-                # Usamos str() en el medio, es la forma más segura de evitar errores de precisión.
-                nueva_inversion.precio_actual_titulo = Decimal(str(precio_actual_float))
-            else:
-                # Si la API falla, usamos el precio de compra como respaldo
-                nueva_inversion.precio_actual_titulo = nueva_inversion.precio_compra_titulo
-            
-            nueva_inversion.save() # Ahora la multiplicación será entre dos Decimales
-            messages.success(request, f"Inversión en {ticker} guardada con éxito.")
-            return redirect('lista_inversiones')
-    else:
-        form = InversionForm()
-    
-    context = {'form': form}
-    # Asegúrate de que el path a tu template es correcto
-    return render(request, 'crear_inversion.html', context)
-
-@login_required
-def datos_inversiones(request):
-    
-    qs = (
-        inversiones.objects
-        .filter(propietario=request.user)
-        .annotate(month=TruncMonth('fecha_compra'))
-        .values('month')
-        .annotate(total=Sum('ganancia_perdida_no_realizada'))
-        .order_by('month')
-    )
-    labels = [DateFormat(item['month']).format('Y-m') for item in qs]
-    values = [item['total'] for item in qs]
-    return JsonResponse({'labels': labels, 'data': values})
-
+'''
+Mercado Pago y suscripciones
+'''
 @login_required
 def gestionar_suscripcion(request):
     """
@@ -555,21 +505,10 @@ def mercadopago_webhook(request):
     # Devolvemos un 200 OK para que Mercado Pago sepa que recibimos la notificación
     return HttpResponse(status=200)
 
-@login_required
-def datos_ganancias_mensuales(request):
-    """Retorna las ganancias mensuales acumuladas de las inversiones del usuario.
-    profits = calculate_monthly_profit(request.user)
-    labels = list(profits.keys())
-    data = [profits[month] for month in labels]
-    return JsonResponse({'labels': labels, 'data': data})
-    """
-    ganancias = GananciaMensual.objects.filter(
-        propietario=request.user
-    ).order_by('mes')
-    labels = [g.mes for g in ganancias]
-    data = [g.total for g in ganancias]
-    return JsonResponse({'labels': labels, 'data': data})
 
+'''
+Inversiones
+'''
 @login_required
 def iniciar_procesamiento_inversiones(request):
     """Inicia el procesamiento automático de inversiones."""
@@ -582,3 +521,164 @@ def iniciar_procesamiento_inversiones(request):
 @login_required
 def vista_procesamiento_inversiones(request):
     return render(request, 'procesamiento_inversiones.html')
+
+@login_required
+def revisar_inversiones(request):
+    """
+    Muestra todas las inversiones pendientes para que el usuario las revise.
+    """
+    pending_investments = PendingInvestment.objects.filter(propietario=request.user, estado='pendiente')
+    context = {'pending_investments': pending_investments}
+    return render(request, 'revisar_inversiones.html', context)
+
+@login_required
+def aprobar_inversion(request, inversion_id):
+    """
+    Aprueba una inversión pendiente, la convierte en una inversión real y la elimina de la lista de pendientes.
+    """
+    pending = get_object_or_404(PendingInvestment, id=inversion_id, propietario=request.user)
+    
+    if request.method == 'POST':
+        datos = pending.datos_json
+        
+        # Creamos la inversión final usando los datos del JSON
+        inversiones.objects.create(
+            propietario=request.user,
+            fecha_compra=parse_date_safely(datos.get("fecha_compra")),
+            emisora_ticker=datos.get("emisora_ticker"),
+            nombre_activo=datos.get("nombre_activo"),
+            cantidad_titulos=Decimal(str(datos.get("cantidad_titulos", 0.0))),
+            precio_compra_titulo=Decimal(str(datos.get("precio_por_titulo", 0.0))),
+            costo_total_adquisicion=Decimal(str(datos.get("costo_total", 0.0))),
+            precio_actual_titulo=Decimal(str(datos.get("precio_por_titulo", 0.0))), # Inicialmente es el mismo
+            tipo_cambio_compra=Decimal(str(datos.get("tipo_cambio_usd"))) if datos.get("tipo_cambio_usd") else None,
+        )
+        
+        # Marcamos la pendiente como aprobada y la eliminamos (o la guardamos como 'aprobada')
+        pending.estado = 'aprobada'
+        pending.save()
+        
+        messages.success(request, f"Inversión en {datos.get('nombre_activo')} aprobada correctamente.")
+        return redirect('revisar_inversiones')
+
+    # Si no es POST, simplemente redirigimos a la página de revisión.
+    return redirect('revisar_inversiones')
+
+@login_required
+def rechazar_inversion(request, inversion_id):
+    """
+    Rechaza (elimina) una inversión pendiente.
+    """
+    inversion = PendingInvestment.objects.get(id=inversion_id, propietario=request.user)
+    inversion.estado = 'rechazada'
+    inversion.save()
+    return redirect('revisar_inversiones')
+
+@login_required
+def aprobar_todas_inversiones(request):
+    if request.method == 'POST':
+        pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
+        inversiones_pendientes = [p for p in pendientes if 'nombre_activo' in p.datos_json]
+        investment_service = InvestmentService()
+        aprobadas = 0
+        for inv in inversiones_pendientes:
+            investment_service.create_investment(request.user, inv.datos_json)
+            inv.estado = 'aprobada'
+            inv.save()
+            aprobadas += 1
+        if aprobadas > 0:
+            messages.success(request, f"{aprobadas} inversiones han sido aprobadas correctamente.")
+        else:
+            messages.warning(request, "No se aprobaron inversiones.")
+    return redirect('revisar_inversiones')
+
+@login_required
+def rechazar_todas_inversiones(request):
+    if request.method == 'POST':
+        pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
+        for inv in pendientes:
+            if 'nombre_activo' in inv.datos_json:
+                inv.estado = 'rechazada'
+                inv.save()
+    return redirect('revisar_inversiones')
+
+@login_required
+def lista_inversiones(request):
+    """
+    Muestra todas las inversiones del usuario logueado.
+    """
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
+    es_usuario_premium = suscripcion.is_active()
+    context = {'inversiones': lista, 'es_usuario_premium': es_usuario_premium}
+    return render(request, 'lista_inversiones.html', context)
+
+@login_required
+def editar_inversion(request, inversion_id):
+    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
+    if request.method == 'POST':
+        form = InversionForm(request.POST, instance=inversion)
+        if form.is_valid():
+            form.save()
+            return redirect('lista_inversiones')
+    else:
+        form = InversionForm(instance=inversion)
+    return render(request, 'editar_inversion.html', {'form': form})
+
+@login_required
+def eliminar_inversion(request, inversion_id):
+    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
+    if request.method == 'POST':
+        inversion.delete()
+        return redirect('lista_inversiones')
+    return render(request, 'confirmar_eliminar_inversion.html', {'inversion': inversion})
+
+@login_required
+def crear_inversion(request):
+    """
+    Maneja la creación de una nueva inversión, obteniendo el precio actual de una API.
+    """
+    if request.method == 'POST':
+        form = InversionForm(request.POST)
+        if form.is_valid():
+            nueva_inversion = form.save(commit=False)
+            nueva_inversion.propietario = request.user
+            price_service = StockPriceService()
+            ticker = form.cleaned_data.get('emisora_ticker').upper()
+
+            # Obtenemos el precio como float desde el servicio
+            precio_actual_float = price_service.get_current_price(ticker)
+            
+            # --- PASO 2: AQUÍ ESTÁ LA CORRECCIÓN ---
+            if precio_actual_float is not None:
+                # Convertimos el float a un Decimal antes de asignarlo al modelo
+                # Usamos str() en el medio, es la forma más segura de evitar errores de precisión.
+                nueva_inversion.precio_actual_titulo = Decimal(str(precio_actual_float))
+            else:
+                # Si la API falla, usamos el precio de compra como respaldo
+                nueva_inversion.precio_actual_titulo = nueva_inversion.precio_compra_titulo
+            
+            nueva_inversion.save() # Ahora la multiplicación será entre dos Decimales
+            messages.success(request, f"Inversión en {ticker} guardada con éxito.")
+            return redirect('lista_inversiones')
+    else:
+        form = InversionForm()
+    
+    context = {'form': form}
+    # Asegúrate de que el path a tu template es correcto
+    return render(request, 'crear_inversion.html', context)
+
+@login_required
+def datos_inversiones(request):
+    
+    qs = (
+        inversiones.objects
+        .filter(propietario=request.user)
+        .annotate(month=TruncMonth('fecha_compra'))
+        .values('month')
+        .annotate(total=Sum('ganancia_perdida_no_realizada'))
+        .order_by('month')
+    )
+    labels = [DateFormat(item['month']).format('Y-m') for item in qs]
+    values = [item['total'] for item in qs]
+    return JsonResponse({'labels': labels, 'data': values})
