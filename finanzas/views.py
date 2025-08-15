@@ -30,14 +30,37 @@ from .models import registro_transacciones, Suscripcion, TransaccionPendiente, i
 logger = logging.getLogger(__name__)
 
 def enviar_pregunta(request):
-    if request.method == "POST":
-        email = request.POST.get("email")
-        message = request.POST.get("message")
-        subject = "Nueva pregunta desde el sitio"
-        body = f"Correo: {email}\n\nMensaje:\n{message}"
-        send_mail(subject, body, settings.EMAIL_BACKEND, [settings.EMAIL_HOST_USER])
-        messages.success(request, "Tu mensaje ha sido enviado correctamente.")
-    return redirect('home')
+    if request.method == 'POST':
+        # Obtenemos los datos del formulario
+        email_usuario = request.POST.get('email')
+        mensaje_usuario = request.POST.get('message')
+
+        # Creamos el cuerpo del correo que recibirás
+        asunto = f"Nueva pregunta de: {email_usuario}"
+        mensaje_completo = f"Has recibido una nueva pregunta desde tu página web.\n\n"
+        mensaje_completo += f"Correo del usuario: {email_usuario}\n"
+        mensaje_completo += f"Mensaje:\n{mensaje_usuario}"
+
+        try:
+            # Enviamos el correo usando la configuración de settings.py
+            send_mail(
+                asunto,
+                mensaje_completo,
+                settings.DEFAULT_FROM_EMAIL, # El remitente (tu correo)
+                [settings.EMAIL_HOST_USER],   # El destinatario (tu mismo correo)
+                fail_silently=False,
+            )
+            # Añadimos un mensaje de éxito
+            messages.success(request, '¡Gracias por tu mensaje! Te responderemos pronto.')
+        except Exception as e:
+            # Si hay un error, añadimos un mensaje de error
+            messages.error(request, f'Hubo un error al enviar tu mensaje: {e}')
+
+        # Redirigimos al usuario a la página de inicio
+        return redirect('index')
+
+    # Si no es POST, simplemente redirigimos a inicio
+    return redirect('index')
 
 '''
 Vista de inicio, redirige a la página de inicio,
