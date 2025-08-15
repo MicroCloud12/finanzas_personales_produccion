@@ -9,6 +9,8 @@ from django.contrib.auth import login
 from .utils import parse_date_safely
 from .tasks import process_drive_tickets, process_drive_investments
 from datetime import datetime, timedelta
+from django.core.mail import send_mail
+from django.conf import settings
 from django.db.models import Sum
 from decimal import Decimal
 from django.db.models import Sum, Q
@@ -26,6 +28,16 @@ from .services import TransactionService, MercadoPagoService, StockPriceService,
 from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment
 
 logger = logging.getLogger(__name__)
+
+def enviar_pregunta(request):
+    if request.method == "POST":
+        email = request.POST.get("email")
+        message = request.POST.get("message")
+        subject = "Nueva pregunta desde el sitio"
+        body = f"Correo: {email}\n\nMensaje:\n{message}"
+        send_mail(subject, body, settings.EMAIL_BACKEND, [settings.EMAIL_HOST_USER])
+        messages.success(request, "Tu mensaje ha sido enviado correctamente.")
+    return redirect('home')
 
 '''
 Vista de inicio, redirige a la página de inicio,
