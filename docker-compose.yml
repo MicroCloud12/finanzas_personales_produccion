@@ -18,7 +18,7 @@ services:
 
   web:
     build: .
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --log-file=-
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --log-file=- --forwarded-allow-ips="*"
     env_file:
       - .env
     # --- LÍNEA MODIFICADA ---
@@ -62,7 +62,7 @@ volumes:
 
 cron:
     build: .
-    command: /app/cron_job.sh
+    command: /opt/app/cron_job.sh
     volumes:
       - .:/app
     environment:
