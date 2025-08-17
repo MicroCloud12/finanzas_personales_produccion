@@ -44,6 +44,7 @@ urlpatterns = [
     path('suscripcion/webhook/', views.mercadopago_webhook, name='mercadopago_webhook'),
     path('api/datos-ganancias-mensuales/', views.datos_ganancias_mensuales, name='api_ganancias_mensuales'),
     path('privacy-policy/', views.privacy_policy, name='privacy_policy'),
+    path('terms-of-service/', views.terms_of_service, name='terms_of_service'),
     #path('deudas/', views.lista_deudas, name='lista_deudas'),
     #path('deudas/crear/', views.crear_deuda, name='crear_deuda'),
 ]

@@ -44,6 +44,12 @@ def privacy_policy(request):
     """
     return render(request, 'privacy_policy.html')
 
+def terms_of_service(request):
+    """
+    Muestra la página de Términos y Condiciones del Servicio.
+    """
+    return render(request, 'terms_of_service.html')
+
 '''
 Vista de inicio, redirige a la página de inicio,
 inicio de sesión y registro.
