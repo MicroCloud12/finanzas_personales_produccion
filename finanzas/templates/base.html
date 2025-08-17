@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Finanzas Personales</title>
+    <title>Finanzas Personales | Controla tus Gastos e Inversiones</title>
 
     <!-- Load favicon 
     <link
@@ -20,7 +20,7 @@
       href="#"
       onload="this.rel = 'stylesheet'"
     />-->
-
+    <meta name="description" content="Toma el control de tus finanzas personales. Registra transacciones, administra inversiones y optimiza tu dinero con nuestra aplicación de finanzas.">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Karla&family=Markazi+Text:wght@500&display=swap" rel="stylesheet"/>
@@ -30,24 +30,17 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="{% static 'js/main.js' %}"></script>
   </head>
-    <body class="bg-gray-50 flex flex-col min-h-screen">
+  <body class="bg-gray-50 flex flex-col min-h-screen">
       {% block header %}
           {% include 'partials/_header.html' %}
       {% endblock header %}
       <main class="flex-grow">
-          {% if messages %}
-          <div class="max-w-7xl mx-auto px-4">
-              {% for message in messages %}
-              <div class="bg-green-100 text-green-800 px-4 py-2 rounded mb-4">{{ message }}</div>
-              {% endfor %}
-          </div>
-          {% endif %}
           {% block content %}
           {% endblock content %}
       </main>
       {% block footer %}
       <footer class="bg-gray-100 text-gray-600 text-center py-4 mt-8">
-          <p class="text-sm">&copy; {{ now|date:"Y" }} Prisma Vault</p>
+          <p class="text-sm">&copy; {{ now|date:"Y" }} Finanzas Personales</p>
       </footer>
       {% endblock footer %}
       {% block javascript %}{% endblock javascript %}
