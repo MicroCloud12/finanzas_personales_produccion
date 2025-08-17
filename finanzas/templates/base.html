@@ -41,6 +41,7 @@
       {% block footer %}
       <footer class="bg-gray-100 text-gray-600 text-center py-4 mt-8">
           <p class="text-sm">&copy; {{ now|date:"Y" }} Prisma Vault</p>
+          <a href="{% url 'privacy_policy' %}"> Politica de Privacidad</a>
       </footer>
       {% endblock footer %}
       {% block javascript %}{% endblock javascript %}
