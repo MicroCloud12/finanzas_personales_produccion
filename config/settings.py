@@ -218,6 +218,7 @@ SOCIALACCOUNT_PROVIDERS = {
         ],
         'AUTH_PARAMS': {
             'access_type': 'offline', # crucial para obtener un refresh_token y acceder cuando el usuario no está
+            'include_granted_scopes': 'true'
         }
     }
 }
