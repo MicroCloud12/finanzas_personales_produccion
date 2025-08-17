@@ -38,6 +38,12 @@ def enviar_pregunta(request):
         messages.success(request, "Tu mensaje ha sido enviado correctamente.")
     return redirect('home')
 
+def privacy_policy(request):
+    """
+    Muestra la página de la política de privacidad.
+    """
+    return render(request, 'privacy_policy.html')
+
 '''
 Vista de inicio, redirige a la página de inicio,
 inicio de sesión y registro.
