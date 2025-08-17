@@ -152,7 +152,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Los directorios donde Django buscará tus archivos estáticos
 # (CSS, JS, imágenes de tu proyecto)
 STATICFILES_DIRS = [
-    BASE_DIR / "static",
+    BASE_DIR / "theme" / "static",
 ]
 
 # Configuración de almacenamiento para WhiteNoise (optimiza el caché).
