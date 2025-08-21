@@ -38,7 +38,10 @@ class TransaccionesForm (forms.ModelForm):
              # Si recibimos un usuario, filtramos el queryset de deudas
             if user:
                 self.fields['deuda_asociada'].queryset = Deuda.objects.filter(propietario=user)
-
+            # 2. Hacemos que el campo sea opcional y le ponemos una etiqueta más clara
+            self.fields['deuda_asociada'].required = False
+            self.fields['deuda_asociada'].label = "Deuda Asociada (Opcional)"
+            self.fields['deuda_asociada'].empty_label = "Ninguna" # Texto para la opción vacía
             # Definimos las clases para los campos de texto, fecha, número, etc.
             tailwind_input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             # Clases para el menú desplegable (select)
