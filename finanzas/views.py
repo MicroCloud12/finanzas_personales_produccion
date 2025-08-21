@@ -729,8 +729,8 @@ def crear_deuda(request):
             
             # --- 2. ¡AQUÍ OCURRE LA MAGIA! ---
             # Si la deuda es un préstamo, generamos su tabla de amortización
-            if deuda.tipo_deuda == 'PRESTAMO':
-                generar_tabla_amortizacion(deuda)
+            #if deuda.tipo_deuda == 'PRESTAMO':
+            #    generar_tabla_amortizacion(deuda)
             
             messages.success(request, f"Deuda '{deuda.nombre}' creada con éxito.")
             return redirect('lista_deudas')
