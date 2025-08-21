@@ -161,6 +161,8 @@ def crear_transacciones(request):
             logger.error(f"Error de validación en TransaccionesForm: {form.errors.as_json()}")
     else: 
         form = TransaccionesForm(user=request.user)
+        logger.debug(f"Campo Deuda Asociada renderizado como: {form['deuda_asociada']}")
+        
     context = {'form': form}
     return render(request, 'transacciones.html', context)
 
