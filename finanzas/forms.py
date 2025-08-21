@@ -47,13 +47,10 @@ class TransaccionesForm (forms.ModelForm):
             # Clases para el menú desplegable (select)
             tailwind_select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
 
-            # Iteramos sobre todos los campos para aplicar las clases
             for field_name, field in self.fields.items():
-                if field.widget.input_type == 'select':
-                    # Si el campo es un menú desplegable (como nuestro campo 'tipo')
+                if hasattr(field.widget, 'input_type') and field.widget.input_type == 'select':
                     field.widget.attrs.update({'class': tailwind_select_classes})
                 else:
-                    # Para todos los demás campos
                     field.widget.attrs.update({'class': tailwind_input_classes})
 
 class FormularioRegistroPersonalizado(UserCreationForm):
