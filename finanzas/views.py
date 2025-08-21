@@ -162,7 +162,7 @@ def crear_transacciones(request):
     else: 
         form = TransaccionesForm(user=request.user)
         logger.debug(f"Campo Deuda Asociada renderizado como: {form['deuda_asociada']}")
-        
+
     context = {'form': form}
     return render(request, 'transacciones.html', context)
 
@@ -193,13 +193,17 @@ def lista_transacciones(request):
 @login_required
 def editar_transaccion(request, transaccion_id):
     transaccion = get_object_or_404(registro_transacciones, id=transaccion_id, propietario=request.user)
+    
     if request.method == 'POST':
+        # --- CAMBIO 1: Pasamos el 'user' aquí ---
         form = TransaccionesForm(request.POST, instance=transaccion, user=request.user)
         if form.is_valid():
             form.save()
             return redirect('lista_transacciones')
     else:
+        # --- CAMBIO 2: Y también lo pasamos aquí ---
         form = TransaccionesForm(instance=transaccion, user=request.user)
+    
     return render(request, 'editar_transaccion.html', {'form': form})
 
 @login_required
