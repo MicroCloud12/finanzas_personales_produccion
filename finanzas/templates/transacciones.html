@@ -62,7 +62,15 @@
                 {{ form.deuda_asociada.label }}
             </label>
             <div class="mt-1">
-                {{ form.deuda_asociada }}
+                <select name="{{ form.deuda_asociada.name }}" id="{{ form.deuda_asociada.id_for_label }}" class="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    
+                    {% for value, text in form.deuda_asociada.field.choices %}
+                        <option value="{{ value }}" {% if form.deuda_asociada.value == value %}selected{% endif %}>
+                            {{ text }}
+                        </option>
+                    {% endfor %}
+
+                </select>
             </div>
             {% for error in form.errors.deuda_asociada %}
                 <p class="mt-2 text-xs text-red-600">{{ error }}</p>
