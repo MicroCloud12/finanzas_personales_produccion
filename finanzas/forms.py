@@ -10,6 +10,7 @@ class TransaccionesForm (forms.ModelForm):
         model = registro_transacciones
         # En lugar de listar los campos que queremos, listamos los que NO queremos.
         # Esto oculta el campo 'propietario' del formulario.
+        exclude = ('propietario',)
         deuda_asociada = forms.ModelChoiceField(
             queryset=Deuda.objects.none(),  # Empezamos con un queryset vacío
             required=False,
@@ -18,29 +19,26 @@ class TransaccionesForm (forms.ModelForm):
         # --- AQUÍ ESTÁ LA NUEVA MAGIA ---
         # Definimos explícitamente qué widget y qué atributos
         # queremos para cada campo del formulario.
-        class Meta:
-            model = registro_transacciones
-            exclude = ('propietario',)
-            widgets = {
-                'fecha': forms.DateInput(attrs={'type': 'date','class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'descripcion': forms.Textarea(attrs={'rows': 3, 'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'categoria': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'monto': forms.NumberInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'tipo': forms.Select(attrs={'class': 'block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'cuenta_origen': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'cuenta_destino': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-                'deuda_asociada': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            }
-            
+        widgets = {
+            'fecha': forms.DateInput(attrs={'type': 'date','class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'descripcion': forms.Textarea(attrs={'rows': 3, 'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'categoria': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'monto': forms.NumberInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'tipo': forms.Select(attrs={'class': 'block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'cuenta_origen': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'cuenta_destino': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'deuda_asociada': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+        }
+
 
     # --- AÑADIMOS ESTA LÓGICA DE ESTILOS ---
         def __init__(self, *args, **kwargs):
-            # Sacamos al 'user' de los kwargs antes de llamar al padre
             user = kwargs.pop('user', None)
             super().__init__(*args, **kwargs)
-            # Si recibimos un usuario, filtramos el queryset de deudas
+             # Si recibimos un usuario, filtramos el queryset de deudas
             if user:
                 self.fields['deuda_asociada'].queryset = Deuda.objects.filter(propietario=user)
+
             # Definimos las clases para los campos de texto, fecha, número, etc.
             tailwind_input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             # Clases para el menú desplegable (select)
