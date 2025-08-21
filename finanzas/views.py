@@ -151,19 +151,16 @@ def aprobar_ticket(request, ticket_id):
 @login_required
 def crear_transacciones(request):
     if request.method == 'POST':
-        form = TransaccionesForm(request.POST)
+        form = TransaccionesForm(request.POST, user=request.user)
         if form.is_valid():
             nueva_transaccion = form.save(commit=False)
             nueva_transaccion.propietario = request.user
             nueva_transaccion.save()
-            return redirect('dashboard')
+            return redirect('lista_transacciones')
         else:
-            # --- ¡AQUÍ ESTÁ LA MAGIA DE LA DEPURACIÓN! ---
-            # Si el formulario no es válido, imprimimos los errores en los logs.
             logger.error(f"Error de validación en TransaccionesForm: {form.errors.as_json()}")
-            
     else: 
-        form = TransaccionesForm()
+        form = TransaccionesForm(user=request.user)
     context = {'form': form}
     return render(request, 'transacciones.html', context)
 
@@ -195,12 +192,12 @@ def lista_transacciones(request):
 def editar_transaccion(request, transaccion_id):
     transaccion = get_object_or_404(registro_transacciones, id=transaccion_id, propietario=request.user)
     if request.method == 'POST':
-        form = TransaccionesForm(request.POST, instance=transaccion)
+        form = TransaccionesForm(request.POST, instance=transaccion, user=request.user)
         if form.is_valid():
             form.save()
             return redirect('lista_transacciones')
     else:
-        form = TransaccionesForm(instance=transaccion)
+        form = TransaccionesForm(instance=transaccion, user=request.user)
     return render(request, 'editar_transaccion.html', {'form': form})
 
 @login_required
