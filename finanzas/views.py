@@ -794,3 +794,14 @@ def eliminar_deuda(request, deuda_id):
     context = {'deuda': deuda}
     return render(request, 'confirmar_eliminar_deuda.html', context)
 
+def politica_privacidad(request):
+    """
+    Muestra la política de privacidad de la aplicación.
+    """
+    return render(request, 'politica_privacidad.html')
+
+def terminos_servicio(request):
+    """
+    Muestra los términos de servicio de la aplicación.
+    """
+    return render(request, 'terminos_servicio.html')
