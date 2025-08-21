@@ -151,7 +151,7 @@ def aprobar_ticket(request, ticket_id):
 @login_required
 def crear_transacciones(request):
     if request.method == 'POST':
-        form = TransaccionesForm(request.POST, user=request.user)
+        form = TransaccionesForm(request.POST)
         if form.is_valid():
             nueva_transaccion = form.save(commit=False)
             nueva_transaccion.propietario = request.user
@@ -163,9 +163,7 @@ def crear_transacciones(request):
             logger.error(f"Error de validación en TransaccionesForm: {form.errors.as_json()}")
             
     else: 
-        form = TransaccionesForm(user=request.user)
-    
-    # Añadimos el formulario (con los posibles errores) al contexto para que la plantilla los muestre
+        form = TransaccionesForm()
     context = {'form': form}
     return render(request, 'transacciones.html', context)
 
