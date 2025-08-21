@@ -238,6 +238,7 @@ class PagoAmortizacion(models.Model):
         # --- LÓGICA AUTOMÁTICA ---
         # Calculamos el pago total automáticamente antes de guardar.
         self.pago_total = self.capital + self.interes + self.iva
+        self.saldo_insoluto = self.deuda.saldo_pendiente - self.capital
         super().save(*args, **kwargs)
 
     def __str__(self):
