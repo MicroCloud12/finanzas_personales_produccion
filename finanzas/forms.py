@@ -1,7 +1,8 @@
 from django import forms
-from .models import registro_transacciones, inversiones
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
+from django.contrib.auth.forms import UserCreationForm
+from .models import registro_transacciones, inversiones, Deuda, PagoAmortizacion
+
 
 
 class TransaccionesForm (forms.ModelForm):
@@ -21,7 +22,7 @@ class TransaccionesForm (forms.ModelForm):
             'tipo': forms.Select(attrs={'class': 'block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
             'cuenta_origen': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
             'cuenta_destino': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'id_prestamo_ref': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'deuda_asociada': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
         }
 
     # --- AÑADIMOS ESTA LÓGICA DE ESTILOS ---
@@ -116,3 +117,56 @@ class InversionForm(forms.ModelForm):
         # Añadimos textos de ayuda para guiar al usuario
         self.fields['nombre_activo'].help_text = "Ej: 'NVIDIA Corp', 'Bitcoin', 'Fondo de Inversión Global'."
         self.fields['emisora_ticker'].help_text = "Opcional. Ej: 'AAPL' para Apple, 'BIMBOA.MX' para Bimbo."
+
+class DeudaForm(forms.ModelForm):
+    """
+    Formulario para crear y actualizar deudas, con estilos de Tailwind.
+    """
+    class Meta:
+        model = Deuda
+        # Excluimos los campos que se calculan automáticamente o los asigna el sistema.
+        exclude = ('propietario', 'saldo_pendiente')
+        
+        # Textos de ayuda para guiar al usuario
+        help_texts = {
+            'nombre': "Dale un apodo fácil de recordar (ej. 'Tarjeta Banamex', 'Crédito Coche').",
+            'tasa_interes': "Ingresa la Tasa de Interés Anual (Ej: 16.5 para 16.5%).",
+            'plazo_meses': "Para tarjetas de crédito, puedes dejarlo en 1."
+        }
+
+    def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            
+            # Clases de Tailwind para aplicar a los campos
+            input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+
+            # Aplicamos los estilos a cada campo
+            for field_name, field in self.fields.items():
+                if isinstance(field.widget, forms.Select):
+                    # --- ¡AQUÍ ESTABA EL ERROR CORREGIDO! ---
+                    field.widget.attrs.update({'class': select_classes})
+                else:
+                    field.widget.attrs.update({'class': input_classes})
+                    
+            # Hacemos que el campo de fecha use el widget de fecha de HTML5
+            self.fields['fecha_adquisicion'].widget = forms.DateInput(
+                attrs={'type': 'date', 'class': input_classes}
+        )
+            
+class PagoAmortizacionForm(forms.ModelForm):
+    class Meta:
+        model = PagoAmortizacion
+        # Incluimos solo los campos que el usuario debe llenar
+        fields = ['fecha_vencimiento', 'capital', 'interes', 'iva', 'saldo_insoluto']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm"
+        
+        for field_name, field in self.fields.items():
+            field.widget.attrs.update({'class': input_classes})
+            
+        self.fields['fecha_vencimiento'].widget = forms.DateInput(
+            attrs={'type': 'date', 'class': input_classes}
+        )

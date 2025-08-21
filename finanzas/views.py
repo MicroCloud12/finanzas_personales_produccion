@@ -6,7 +6,6 @@ from django.urls import reverse
 from django.contrib import messages
 from django.http import JsonResponse
 from django.contrib.auth import login
-from .utils import parse_date_safely
 from datetime import datetime, timedelta
 from django.core.mail import send_mail
 from django.conf import settings
@@ -20,11 +19,13 @@ from celery.result import AsyncResult, GroupResult
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
+from .utils import parse_date_safely, generar_tabla_amortizacion
 from django.shortcuts import render, redirect, get_object_or_404
 from .tasks import process_drive_tickets, process_drive_investments
-from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm 
+from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, DeudaForm, PagoAmortizacionForm
 from .services import TransactionService, MercadoPagoService, StockPriceService, InvestmentService
-from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment
+from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment, Deuda, PagoAmortizacion
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,18 +38,6 @@ def enviar_pregunta(request):
         send_mail(subject, body, settings.EMAIL_BACKEND, [settings.EMAIL_HOST_USER])
         messages.success(request, "Tu mensaje ha sido enviado correctamente.")
     return redirect('home')
-
-def privacy_policy(request):
-    """
-    Muestra la página de la política de privacidad.
-    """
-    return render(request, 'privacy_policy.html')
-
-def terms_of_service(request):
-    """
-    Muestra la página de Términos y Condiciones del Servicio.
-    """
-    return render(request, 'terms_of_service.html')
 
 '''
 Vista de inicio, redirige a la página de inicio,
@@ -287,46 +276,38 @@ def vista_dashboard(request):
         fecha__month=month
     )
 
+     # --- LA MAGIA DE LA OPTIMIZACIÓN ---
     # Hacemos UNA SOLA CONSULTA para obtener todos los totales
     agregados = transacciones.aggregate(
-        # Suma de ingresos que no son ahorro y vienen de la quincena
-        ingresos_efectivo = Sum('monto',filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        # Suma de gastos que no son ahorro y vienen de la quincena
-        gastos_efectivo = Sum('monto',filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        #Suma de Ahorro total que es ingreso de la quincena a la cuenta de ahorro
-        ahorro_total = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena') & Q(cuenta_destino='Cuenta Ahorro')),
-        #
-        #proviciones = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Cuenta Ahorro')),
-        # Suma de transferencias que no son ahorro y vienen de la quincena
-        transferencias_efectivo = Sum('monto',filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        #
-        gastos_ahorro = Sum('monto', filter=Q(tipo='GASTO')  & Q(cuenta_origen='Cuenta Ahorro')),
-        # Suma de ingresos que son ahorro y vienen de la quincena
-        ingresos_ahorro = Sum('monto', filter=Q(tipo='INGRESO') & Q(cuenta_origen='Cuenta Ahorro')),
+        ingresos_efectivo=Sum('monto', filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        gastos_efectivo=Sum('monto', filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        ahorro_total=Sum('monto', filter=Q(tipo='TRANSFERENCIA', categoria='Ahorro', cuenta_origen='Efectivo Quincena', cuenta_destino='Cuenta Ahorro')),
+        transferencias_efectivo=Sum('monto', filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        gastos_ahorro=Sum('monto', filter=Q(tipo='GASTO', cuenta_origen='Cuenta Ahorro')),
+        ingresos_ahorro=Sum('monto', filter=Q(tipo='INGRESO', cuenta_origen='Cuenta Ahorro')),
     )
 
-    # Asignamos los valores, usando .get() para manejar resultados nulos de forma segura
-    ingresos = agregados.get('ingresos_efectivo') or Decimal('0.00')
-    gastos = agregados.get('gastos_efectivo') or Decimal('0.00')
-    ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
-    #proviciones = agregados.get('proviciones') or Decimal('0.00')
-    transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
-    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
-    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
-
-    # Hacemos UNA SOLA CONSULTA para ambos valores
+    # Igualmente, hacemos UNA SOLA CONSULTA para las inversiones
     agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
         total_inicial=Sum('costo_total_adquisicion'),
         total_actual=Sum('valor_actual_mercado')
     )
+    # --- FIN DE LA OPTIMIZACIÓN ---
 
-    # Asignamos los valores
+    # El resto de tu lógica para calcular y asignar valores es correcta y se mantiene
+    ingresos = agregados.get('ingresos_efectivo') or Decimal('0.00')
+    gastos = agregados.get('gastos_efectivo') or Decimal('0.00')
+    ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
+    transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
+    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
+    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
+
     inversion_inicial_usd = agregados_inversion.get('total_inicial') or Decimal('0.00')
     inversion_actual = agregados_inversion.get('total_actual') or Decimal('0.00')
 
-    balance = ingresos - gastos
+    balance = ingresos - gastos - gastos_ahorro
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    ahorro = ahorro_total - gastos_ahorro + ingresos_ahorro
+    ahorro = ahorro_total - gastos_ahorro + ingresos_ahorro + transferencias
 
     context = {
         'ingresos': ingresos,
@@ -721,3 +702,95 @@ def datos_inversiones(request):
     labels = [DateFormat(item['month']).format('Y-m') for item in qs]
     values = [item['total'] for item in qs]
     return JsonResponse({'labels': labels, 'data': values})
+
+'''
+Deudas y amortizaciones
+'''
+@login_required
+def lista_deudas(request):
+    """
+    Muestra una lista de todas las deudas (préstamos y tarjetas) del usuario.
+    """
+    deudas = Deuda.objects.filter(propietario=request.user).order_by('fecha_adquisicion')
+    context = {'deudas': deudas}
+    return render(request, 'lista_deudas.html', context)
+
+@login_required
+def crear_deuda(request):
+    """
+    Maneja la creación de una nueva deuda.
+    """
+    if request.method == 'POST':
+        form = DeudaForm(request.POST)
+        if form.is_valid():
+            deuda = form.save(commit=False)
+            deuda.propietario = request.user
+            deuda.save() # Se guarda la deuda primero
+            
+            # --- 2. ¡AQUÍ OCURRE LA MAGIA! ---
+            # Si la deuda es un préstamo, generamos su tabla de amortización
+            if deuda.tipo_deuda == 'PRESTAMO':
+                generar_tabla_amortizacion(deuda)
+            
+            messages.success(request, f"Deuda '{deuda.nombre}' creada con éxito.")
+            return redirect('lista_deudas')
+    else:
+        form = DeudaForm()
+    
+    context = {'form': form}
+    return render(request, 'crear_deuda.html', context)
+
+# Placeholder para las vistas que construiremos a continuación.
+# Esto evita que la aplicación se rompa por las URLs que ya creamos.
+
+@login_required
+def detalle_deuda(request, deuda_id):
+    deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
+    amortizacion = deuda.amortizacion.all()
+
+    # Si se envía el formulario para añadir una cuota
+    if request.method == 'POST':
+        form = PagoAmortizacionForm(request.POST)
+        if form.is_valid():
+            pago = form.save(commit=False)
+            pago.deuda = deuda
+            # Calculamos el número de cuota automáticamente
+            pago.numero_cuota = amortizacion.count() + 1
+            pago.save() # El modelo calculará el pago_total automáticamente
+            messages.success(request, "Cuota añadida correctamente.")
+            return redirect('detalle_deuda', deuda_id=deuda.id)
+    else:
+        form = PagoAmortizacionForm()
+
+    context = {
+        'deuda': deuda,
+        'amortizacion': amortizacion,
+        'form': form # Pasamos el formulario a la plantilla
+    }
+    return render(request, 'detalle_deuda.html', context)
+
+@login_required
+def editar_deuda(request, deuda_id):
+    # Lógica para editar (la haremos después)
+    deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
+    # ... (lógica del formulario de edición)
+    return redirect('lista_deudas')
+
+@login_required
+def eliminar_deuda(request, deuda_id):
+    """
+    Maneja la eliminación de una deuda y sus pagos de amortización asociados.
+    """
+    deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
+    
+    # Si el usuario confirma la eliminación (envía el formulario)
+    if request.method == 'POST':
+        nombre_deuda = deuda.nombre
+        deuda.delete()
+        messages.success(request, f"La deuda '{nombre_deuda}' ha sido eliminada correctamente.")
+        return redirect('lista_deudas')
+    
+    # Si es la primera vez que se carga la página, muestra la confirmación
+    context = {'deuda': deuda}
+    return render(request, 'confirmar_eliminar_deuda.html', context)
+

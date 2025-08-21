@@ -19,8 +19,7 @@ class registro_transacciones(models.Model):
     tipo = models.CharField(max_length=15, choices=TIPO_CHOICES)
     cuenta_origen = models.CharField(max_length=100)
     cuenta_destino = models.CharField(max_length=100)
-    id_prestamo_ref = models.CharField(max_length=10, blank=True, null=True)
-
+    deuda_asociada = models.ForeignKey('Deuda', on_delete=models.SET_NULL, null=True, blank=True, related_name='pagos')
     def __str__(self):
         return f"{self.id} - {self.descripcion}"
 
@@ -169,3 +168,94 @@ class PendingInvestment(models.Model):
     def __str__(self):
         nombre_activo = self.datos_json.get('nombre_activo', 'N/A')
         return f"Inversión Pendiente de {self.propietario.username} en {nombre_activo}"
+    
+class Deuda(models.Model):
+    TIPO_DEUDA_CHOICES = [
+        ('PRESTAMO', 'Préstamo a Plazo'),
+        ('TARJETA_CREDITO', 'Tarjeta de Crédito'),
+    ]
+
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    
+    # --- PASO 1: Quitamos el unique=True de aquí ---
+    nombre = models.CharField(
+        max_length=100, 
+        help_text="Un nombre único para identificar esta deuda (ej. 'Préstamo Coche')"
+    )
+    
+    tipo_deuda = models.CharField(max_length=20, choices=TIPO_DEUDA_CHOICES, default='PRESTAMO')
+    monto_total = models.DecimalField(
+        max_digits=12, 
+        decimal_places=2, 
+        help_text="Para préstamos: el monto original. Para tarjetas de crédito: el límite de crédito total."
+    )
+    tasa_interes = models.DecimalField(max_digits=5, decimal_places=2, help_text="Tasa de interés anual (%)")
+    plazo_meses = models.PositiveIntegerField(default=1, help_text="Para tarjetas de crédito, puede ser 1.")
+    fecha_adquisicion = models.DateField(default=timezone.now)
+    saldo_pendiente = models.DecimalField(
+        max_digits=12, 
+        decimal_places=2, 
+        blank=True,
+        help_text="El monto que se debe actualmente. Se actualiza con cada pago."
+    )
+
+    # --- PASO 2: Añadimos la clase Meta con la nueva regla ---
+    class Meta:
+        unique_together = ['propietario', 'nombre']
+
+    def __str__(self):
+        return self.nombre
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            self.saldo_pendiente = self.monto_total
+        super().save(*args, **kwargs)
+
+class PagoAmortizacion(models.Model):
+    """
+    Representa una cuota individual en la tabla de amortización de un préstamo.
+    """
+    deuda = models.ForeignKey(Deuda, on_delete=models.CASCADE, related_name='amortizacion')
+    numero_cuota = models.PositiveIntegerField()
+    fecha_vencimiento = models.DateField()
+    capital = models.DecimalField(max_digits=10, decimal_places=2)
+    interes = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    # --- NUEVOS CAMPOS ---
+    iva = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="IVA sobre los intereses")
+    saldo_insoluto = models.DecimalField(max_digits=12, decimal_places=2, help_text="Saldo pendiente después de este pago")
+    
+    # --- CAMBIO DE NOMBRE PARA MAYOR CLARIDAD ---
+    pago_total = models.DecimalField(max_digits=10, decimal_places=2, help_text="Suma de capital + interés + IVA")
+    
+    pagado = models.BooleanField(default=False)
+    transaccion_pago = models.OneToOneField(registro_transacciones, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        ordering = ['numero_cuota']
+
+    def save(self, *args, **kwargs):
+        # --- LÓGICA AUTOMÁTICA ---
+        # Calculamos el pago total automáticamente antes de guardar.
+        self.pago_total = self.capital + self.interes + self.iva
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Cuota {self.numero_cuota} de {self.deuda.nombre}"
+    
+class AmortizacionPendiente(models.Model):
+    """
+    Almacena una tabla de amortización completa extraída por la IA,
+    pendiente de la revisión y aprobación del usuario.
+    """
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    # A qué deuda se asociará esta tabla de amortización
+    deuda = models.ForeignKey(Deuda, on_delete=models.CASCADE, related_name='amortizaciones_pendientes')
+    # Aquí guardaremos la lista completa de cuotas extraídas por Gemini
+    datos_json = models.JSONField()
+    nombre_archivo = models.CharField(max_length=255)
+    estado = models.CharField(max_length=10, choices=(('pendiente', 'Pendiente'), ('aprobada', 'Aprobada')), default='pendiente')
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Amortización Pendiente para '{self.deuda.nombre}' del archivo '{self.nombre_archivo}'"
