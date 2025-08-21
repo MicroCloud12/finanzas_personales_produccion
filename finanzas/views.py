@@ -151,14 +151,21 @@ def aprobar_ticket(request, ticket_id):
 @login_required
 def crear_transacciones(request):
     if request.method == 'POST':
-        form = TransaccionesForm(request.POST)
+        form = TransaccionesForm(request.POST, user=request.user)
         if form.is_valid():
             nueva_transaccion = form.save(commit=False)
             nueva_transaccion.propietario = request.user
             nueva_transaccion.save()
             return redirect('dashboard')
+        else:
+            # --- ¡AQUÍ ESTÁ LA MAGIA DE LA DEPURACIÓN! ---
+            # Si el formulario no es válido, imprimimos los errores en los logs.
+            logger.error(f"Error de validación en TransaccionesForm: {form.errors.as_json()}")
+            
     else: 
-        form = TransaccionesForm()
+        form = TransaccionesForm(user=request.user)
+    
+    # Añadimos el formulario (con los posibles errores) al contexto para que la plantilla los muestre
     context = {'form': form}
     return render(request, 'transacciones.html', context)
 
