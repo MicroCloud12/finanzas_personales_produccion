@@ -158,7 +158,7 @@ class PagoAmortizacionForm(forms.ModelForm):
     class Meta:
         model = PagoAmortizacion
         # Incluimos solo los campos que el usuario debe llenar
-        fields = ['fecha_vencimiento', 'capital', 'interes', 'iva', 'saldo_insoluto']
+        fields = ['fecha_vencimiento', 'capital', 'interes', 'iva']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
