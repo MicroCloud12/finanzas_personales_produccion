@@ -778,12 +778,40 @@ def detalle_deuda(request, deuda_id):
     return render(request, 'detalle_deuda.html', context)
 
 @login_required
-def editar_deuda(request, deuda_id):
-    # Lógica para editar (la haremos después)
+def detalle_deuda(request, deuda_id):
     deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
-    # ... (lógica del formulario de edición)
-    return redirect('lista_deudas')
+    # Obtenemos la amortización ordenada para facilitar el cálculo
+    amortizacion = deuda.amortizacion.all().order_by('-numero_cuota') 
 
+    if request.method == 'POST':
+        form = PagoAmortizacionForm(request.POST)
+        if form.is_valid():
+            pago = form.save(commit=False)
+            pago.deuda = deuda
+            pago.numero_cuota = (amortizacion.first().numero_cuota if amortizacion.exists() else 0) + 1
+
+            # --- LÓGICA DE CÁLCULO AÑADIDA AQUÍ ---
+            ultima_cuota = amortizacion.first()
+            if ultima_cuota:
+                # Si ya hay cuotas, el nuevo saldo es el saldo anterior menos el capital de la nueva cuota
+                pago.saldo_insoluto = ultima_cuota.saldo_insoluto - pago.capital
+            else:
+                # Si es la primera cuota, se calcula sobre el monto total de la deuda
+                pago.saldo_insoluto = deuda.monto_total - pago.capital
+            
+            pago.save() # El modelo ahora solo calculará el pago_total y guardará.
+            messages.success(request, "Cuota añadida correctamente.")
+            return redirect('detalle_deuda', deuda_id=deuda.id)
+    else:
+        form = PagoAmortizacionForm()
+
+    context = {
+        'deuda': deuda,
+        # La pasamos ordenada ascendentemente a la plantilla para la visualización
+        'amortizacion': deuda.amortizacion.all().order_by('numero_cuota'), 
+        'form': form 
+    }
+    return render(request, 'detalle_deuda.html', context)
 @login_required
 def eliminar_deuda(request, deuda_id):
     """
