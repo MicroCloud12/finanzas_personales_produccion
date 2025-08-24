@@ -9,7 +9,7 @@ from django.conf import settings
 # --- ¡IMPORTANTE! ---
 # Coloca la ruta a tu archivo de credenciales JSON aquí.
 # Puede ser una ruta absoluta o relativa a la raíz de tu proyecto.
-CREDENTIALS_FILE_PATH = 'C:/Users/Mauricio/Documents/Github/finanzas_personales_desarollo/mis-finanzas-personales.json'
+CREDENTIALS_FILE_PATH = '/opt/app/mis-finanzas-personales.json'
 
 class Command(BaseCommand):
     help = 'Registra y prueba el endpoint del webhook de Google RISC.'
