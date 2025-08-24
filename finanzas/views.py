@@ -4,7 +4,6 @@ from decimal import Decimal
 from django.utils import timezone
 from django.urls import reverse
 from django.contrib import messages
-from django.http import JsonResponse
 from django.contrib.auth import login
 from datetime import datetime, timedelta
 from django.core.mail import send_mail
@@ -16,7 +15,7 @@ from django.contrib.auth.models import User
 from django.utils.dateformat import DateFormat
 from django.db.models.functions import TruncMonth
 from celery.result import AsyncResult, GroupResult
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse,HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from .utils import parse_date_safely, generar_tabla_amortizacion
@@ -824,29 +823,32 @@ def terminos_servicio(request):
     """
     return render(request, 'terminos_servicio.html')
 
-@csrf_exempt # Es crucial para permitir que un servicio externo como Google haga POST
+@csrf_exempt
 def risc_webhook(request):
-    """
-    Endpoint para recibir y procesar notificaciones de seguridad de Google RISC.
-    """
-    if request.method != 'POST':
-        return HttpResponse(status=405) # Method Not Allowed
+    if request.method == 'POST':
+        try:
+            # Si el cuerpo está vacío, no habrá nada que decodificar
+            if not request.body:
+                logger.warning("Webhook de RISC recibido con cuerpo vacío.")
+                return HttpResponseBadRequest("Cuerpo de la petición vacío.")
 
-    try:
-        # El cuerpo del request es el token de seguridad (JWT)
-        security_token = request.body.decode('utf-8')
-        
-        # 1. Validamos el token usando nuestro servicio
-        risc_service = RISCService()
-        payload = risc_service.validate_token(security_token)
-        
-        # 2. Procesamos los eventos dentro del token
-        risc_service.process_security_event(payload)
+            token = request.body.decode('utf-8')
 
-        # 3. Respondemos a Google que hemos recibido y aceptado el evento
-        return HttpResponse(status=202) # Accepted
+            # Instanciamos el servicio y procesamos el token
+            risc_service = RISCService()
+            risc_service.process_token(token)
 
-    except (ValueError, json.JSONDecodeError) as e:
-        # Si hay un error de validación o formato, lo registramos y respondemos mal
-        logger.error(f"Error procesando el webhook de RISC: {e}")
-        return JsonResponse({'error': str(e)}, status=400) # Bad Request
+            # Si todo va bien, Google espera una respuesta 202 Accepted
+            return JsonResponse({}, status=202)
+
+        except json.JSONDecodeError:
+            logger.error("Error procesando el webhook de RISC: JSON malformado.")
+            return HttpResponseBadRequest("JSON malformado.")
+        except Exception as e:
+            # Captura cualquier otro error inesperado
+            logger.error(f"Error procesando el webhook de RISC: {e}")
+            # En producción, es mejor devolver un error genérico
+            return JsonResponse({'error': 'Error interno del servidor'}, status=500)
+    else:
+        # Si no es POST, no permitimos el método
+        return JsonResponse({'error': 'Método no permitido'}, status=405)
