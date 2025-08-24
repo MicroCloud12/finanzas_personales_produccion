@@ -21,10 +21,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from .utils import parse_date_safely, generar_tabla_amortizacion
 from django.shortcuts import render, redirect, get_object_or_404
-from .tasks import process_drive_tickets, process_drive_investments
+from .tasks import process_drive_tickets, process_drive_investments, process_drive_amortizations
 from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, DeudaForm, PagoAmortizacionForm
 from .services import TransactionService, MercadoPagoService, StockPriceService, InvestmentService, RISCService
-from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment, Deuda, PagoAmortizacion
+from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment, Deuda, PagoAmortizacion, AmortizacionPendiente
 
 
 logger = logging.getLogger(__name__)
@@ -719,8 +719,12 @@ def lista_deudas(request):
     """
     Muestra una lista de todas las deudas (préstamos y tarjetas) del usuario.
     """
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    es_usuario_premium = suscripcion.is_active()
     deudas = Deuda.objects.filter(propietario=request.user).order_by('fecha_adquisicion')
-    context = {'deudas': deudas}
+    context = {'deudas': deudas,
+               'es_usuario_premium': es_usuario_premium
+              }
     return render(request, 'lista_deudas.html', context)
 
 @login_required
@@ -811,6 +815,62 @@ def eliminar_deuda(request, deuda_id):
     # Si es la primera vez que se carga la página, muestra la confirmación
     context = {'deuda': deuda}
     return render(request, 'confirmar_eliminar_deuda.html', context)
+
+@login_required
+def vista_procesamiento_deudas(request, deuda_id):
+    deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
+    return render(request, 'procesamiento_deudas.html', {'deuda': deuda})
+
+@login_required
+def iniciar_procesamiento_deudas(request, deuda_id):
+    """Inicia la tarea de Celery para procesar las tablas de amortización."""
+    try:
+        task = process_drive_amortizations.delay(request.user.id, deuda_id)
+        return JsonResponse({"task_id": task.id}, status=202)
+    except Exception as e:
+        return JsonResponse({"error": f"No se pudo iniciar la tarea: {str(e)}"}, status=400)
+
+@login_required
+def revisar_amortizaciones(request, deuda_id):
+    """Muestra las tablas de amortización pendientes para su revisión."""
+    deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
+    pendientes = AmortizacionPendiente.objects.filter(deuda=deuda, estado='pendiente')
+    context = {
+        'deuda': deuda,
+        'pendientes': pendientes
+    }
+    return render(request, 'revisar_amortizaciones.html', context)
+
+@login_required
+def aprobar_amortizacion(request, pendiente_id):
+    """Crea los registros de PagoAmortizacion a partir de una tabla pendiente."""
+    pendiente = get_object_or_404(AmortizacionPendiente, id=pendiente_id, propietario=request.user)
+    deuda = pendiente.deuda
+
+    if request.method == 'POST':
+        cuotas_json = pendiente.datos_json
+        
+        # Borramos la tabla de amortización existente para evitar duplicados
+        PagoAmortizacion.objects.filter(deuda=deuda).delete()
+
+        for i, cuota_data in enumerate(cuotas_json, 1):
+            PagoAmortizacion.objects.create(
+                deuda=deuda,
+                numero_cuota=i,
+                fecha_vencimiento=parse_date_safely(cuota_data.get("fecha_vencimiento")),
+                capital=Decimal(str(cuota_data.get("capital", 0.0))),
+                interes=Decimal(str(cuota_data.get("interes", 0.0))),
+                iva=Decimal(str(cuota_data.get("iva", 0.0))),
+                saldo_insoluto=Decimal(str(cuota_data.get("saldo_insoluto", 0.0)))
+            )
+        
+        pendiente.estado = 'aprobada'
+        pendiente.save()
+        messages.success(request, f"Tabla de amortización del archivo '{pendiente.nombre_archivo}' aprobada y aplicada.")
+        return redirect('detalle_deuda', deuda_id=deuda.id)
+
+    return redirect('revisar_amortizaciones', deuda_id=deuda.id)
+
 
 def politica_privacidad(request):
     """
