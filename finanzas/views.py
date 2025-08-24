@@ -835,19 +835,12 @@ def risc_webhook(request):
             logger.warning("Webhook de RISC recibido con cuerpo vacío.")
             return HttpResponseBadRequest("Cuerpo de la petición vacío.")
 
-        # --- LÓGICA CORRECTA BASADA EN TU CÓDIGO ---
+        # Instanciamos el servicio
         risc_service = RISCService()
-        payload = risc_service.validate_token(token)
-        events = payload.get('events', {})
 
-        for event_type, event_data in events.items():
-            if event_type == "https://schemas.openid.net/secevent/risc/event-type/verification":
-                # Llama a tu función específica para la verificación
-                risc_service.process_verification_event(event_data)
-            elif event_type == "https://schemas.openid.net/secevent/risc/event-type/account-disabled":
-                # Llama a tu función para cuentas deshabilitadas
-                risc_service.process_account_disabled_event(event_data)
-            # ... puedes añadir más 'elif' para otros eventos que implementes ...
+        # ¡Llamamos a la ÚNICA función necesaria en tu servicio!
+        # Tu función validate_token ya hace todo: valida, procesa e imprime.
+        risc_service.validate_token(token)
 
         return JsonResponse({}, status=202)
 
