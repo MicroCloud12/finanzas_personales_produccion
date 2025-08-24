@@ -835,20 +835,20 @@ def risc_webhook(request):
             logger.warning("Webhook de RISC recibido con cuerpo vacío.")
             return HttpResponseBadRequest("Cuerpo de la petición vacío.")
 
-        # 1. Instanciar el servicio
+        # --- LÓGICA CORRECTA BASADA EN TU CÓDIGO ---
         risc_service = RISCService()
-
-        # 2. Validar el token para obtener el contenido (payload)
         payload = risc_service.validate_token(token)
-
-        # 3. Extraer los eventos del payload
         events = payload.get('events', {})
 
-        # 4. Procesar cada evento llamando a la función CORRECTA: handle_event
         for event_type, event_data in events.items():
-            risc_service.handle_event(event_type, event_data) # <--- ¡ESTA ES LA LÍNEA CORRECTA!
+            if event_type == "https://schemas.openid.net/secevent/risc/event-type/verification":
+                # Llama a tu función específica para la verificación
+                risc_service.process_verification_event(event_data)
+            elif event_type == "https://schemas.openid.net/secevent/risc/event-type/account-disabled":
+                # Llama a tu función para cuentas deshabilitadas
+                risc_service.process_account_disabled_event(event_data)
+            # ... puedes añadir más 'elif' para otros eventos que implementes ...
 
-        # Si todo va bien, Google espera una respuesta 202 Accepted
         return JsonResponse({}, status=202)
 
     except (jwt.exceptions.DecodeError, ValueError) as e:
@@ -857,4 +857,4 @@ def risc_webhook(request):
 
     except Exception as e:
         logger.error(f"Error interno procesando el webhook de RISC: {e}")
-        return JsonResponse({'error': 'Error interno del servidor'}, status=500)
+        return JsonResponse({'error': f"Error interno del servidor: {e}"}, status=500)
