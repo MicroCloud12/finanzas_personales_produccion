@@ -827,31 +827,34 @@ def terminos_servicio(request):
 @csrf_exempt
 def risc_webhook(request):
     if request.method != 'POST':
-        # Si no es POST, no permitimos el método
         return JsonResponse({'error': 'Método no permitido'}, status=405)
 
     try:
-        # Obtenemos el token del cuerpo de la petición
         token = request.body.decode('utf-8')
-
-        # Verificamos si el token está vacío ANTES de procesarlo
         if not token:
             logger.warning("Webhook de RISC recibido con cuerpo vacío.")
             return HttpResponseBadRequest("Cuerpo de la petición vacío.")
 
-        # Instanciamos el servicio y procesamos el token
+        # 1. Instanciar el servicio
         risc_service = RISCService()
-        risc_service.process_token(token) # Llama al método principal en tu servicio
+
+        # 2. Validar el token para obtener el contenido (payload)
+        payload = risc_service.validate_token(token)
+
+        # 3. Extraer los eventos del payload
+        events = payload.get('events', {})
+
+        # 4. Procesar cada evento encontrado
+        for event_type, event_data in events.items():
+            risc_service.process_event(event_type, event_data)
 
         # Si todo va bien, Google espera una respuesta 202 Accepted
         return JsonResponse({}, status=202)
 
     except (jwt.exceptions.DecodeError, ValueError) as e:
-        # Capturamos el error específico si el token es inválido
         logger.error(f"Error procesando el webhook de RISC: Token inválido o malformado - {e}")
         return HttpResponseBadRequest("Token inválido o malformado.")
 
     except Exception as e:
-        # Capturamos cualquier otro error inesperado
         logger.error(f"Error interno procesando el webhook de RISC: {e}")
         return JsonResponse({'error': 'Error interno del servidor'}, status=500)
