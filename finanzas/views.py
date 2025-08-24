@@ -1,4 +1,5 @@
 import json
+import jwt
 import logging
 from decimal import Decimal
 from django.utils import timezone
@@ -825,30 +826,32 @@ def terminos_servicio(request):
 
 @csrf_exempt
 def risc_webhook(request):
-    if request.method == 'POST':
-        try:
-            # Si el cuerpo está vacío, no habrá nada que decodificar
-            if not request.body:
-                logger.warning("Webhook de RISC recibido con cuerpo vacío.")
-                return HttpResponseBadRequest("Cuerpo de la petición vacío.")
-
-            token = request.body.decode('utf-8')
-
-            # Instanciamos el servicio y procesamos el token
-            risc_service = RISCService()
-            risc_service.process_token(token)
-
-            # Si todo va bien, Google espera una respuesta 202 Accepted
-            return JsonResponse({}, status=202)
-
-        except json.JSONDecodeError:
-            logger.error("Error procesando el webhook de RISC: JSON malformado.")
-            return HttpResponseBadRequest("JSON malformado.")
-        except Exception as e:
-            # Captura cualquier otro error inesperado
-            logger.error(f"Error procesando el webhook de RISC: {e}")
-            # En producción, es mejor devolver un error genérico
-            return JsonResponse({'error': 'Error interno del servidor'}, status=500)
-    else:
+    if request.method != 'POST':
         # Si no es POST, no permitimos el método
         return JsonResponse({'error': 'Método no permitido'}, status=405)
+
+    try:
+        # Obtenemos el token del cuerpo de la petición
+        token = request.body.decode('utf-8')
+
+        # Verificamos si el token está vacío ANTES de procesarlo
+        if not token:
+            logger.warning("Webhook de RISC recibido con cuerpo vacío.")
+            return HttpResponseBadRequest("Cuerpo de la petición vacío.")
+
+        # Instanciamos el servicio y procesamos el token
+        risc_service = RISCService()
+        risc_service.process_token(token) # Llama al método principal en tu servicio
+
+        # Si todo va bien, Google espera una respuesta 202 Accepted
+        return JsonResponse({}, status=202)
+
+    except (jwt.exceptions.DecodeError, ValueError) as e:
+        # Capturamos el error específico si el token es inválido
+        logger.error(f"Error procesando el webhook de RISC: Token inválido o malformado - {e}")
+        return HttpResponseBadRequest("Token inválido o malformado.")
+
+    except Exception as e:
+        # Capturamos cualquier otro error inesperado
+        logger.error(f"Error interno procesando el webhook de RISC: {e}")
+        return JsonResponse({'error': 'Error interno del servidor'}, status=500)
