@@ -832,16 +832,11 @@ def risc_webhook(request):
     try:
         token = request.body.decode('utf-8')
         if not token:
-            logger.warning("Webhook de RISC recibido con cuerpo vacío.")
             return HttpResponseBadRequest("Cuerpo de la petición vacío.")
 
         risc_service = RISCService()
-
-        # 1. Validar el token y obtener el payload
-        payload = risc_service.validate_token(token)
-
-        # 2. Procesar los eventos del payload con la nueva función
-        risc_service.process_events(payload)
+        # Llamamos a tu única función que hace todo el trabajo.
+        risc_service.validate_token(token)
 
         return JsonResponse({}, status=202)
 
