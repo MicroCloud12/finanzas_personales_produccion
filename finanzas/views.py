@@ -835,24 +835,17 @@ def risc_webhook(request):
             logger.warning("Webhook de RISC recibido con cuerpo vacío.")
             return HttpResponseBadRequest("Cuerpo de la petición vacío.")
 
-        # 1. Instanciar el servicio
+        # Instanciamos el servicio
         risc_service = RISCService()
 
-        # 2. Validar el token para obtener el contenido (payload)
-        payload = risc_service.validate_token(token)
-
-        # 3. Extraer los eventos del payload
-        events = payload.get('events', {})
-
-        # 4. Procesar cada evento encontrado
-        for event_type, event_data in events.items():
-            risc_service.process_event(event_type, event_data)
+        # ¡Llamamos a LA FUNCIÓN CORRECTA que está en tu services.py!
+        risc_service.validate_and_process_token(token)
 
         # Si todo va bien, Google espera una respuesta 202 Accepted
         return JsonResponse({}, status=202)
 
     except (jwt.exceptions.DecodeError, ValueError) as e:
-        logger.error(f"Error procesando el webhook de RISC: Token inválido o malformado - {e}")
+        logger.error(f"Error procesando el webhook de RISC: Token inválido - {e}")
         return HttpResponseBadRequest("Token inválido o malformado.")
 
     except Exception as e:
