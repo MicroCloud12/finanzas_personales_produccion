@@ -23,7 +23,7 @@ from .utils import parse_date_safely, generar_tabla_amortizacion
 from django.shortcuts import render, redirect, get_object_or_404
 from .tasks import process_drive_tickets, process_drive_investments
 from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, DeudaForm, PagoAmortizacionForm
-from .services import TransactionService, MercadoPagoService, StockPriceService, InvestmentService
+from .services import TransactionService, MercadoPagoService, StockPriceService, InvestmentService, RISCService
 from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment, Deuda, PagoAmortizacion
 
 
@@ -823,3 +823,30 @@ def terminos_servicio(request):
     Muestra los términos de servicio de la aplicación.
     """
     return render(request, 'terminos_servicio.html')
+
+@csrf_exempt # Es crucial para permitir que un servicio externo como Google haga POST
+def risc_webhook(request):
+    """
+    Endpoint para recibir y procesar notificaciones de seguridad de Google RISC.
+    """
+    if request.method != 'POST':
+        return HttpResponse(status=405) # Method Not Allowed
+
+    try:
+        # El cuerpo del request es el token de seguridad (JWT)
+        security_token = request.body.decode('utf-8')
+        
+        # 1. Validamos el token usando nuestro servicio
+        risc_service = RISCService()
+        payload = risc_service.validate_token(security_token)
+        
+        # 2. Procesamos los eventos dentro del token
+        risc_service.process_security_event(payload)
+
+        # 3. Respondemos a Google que hemos recibido y aceptado el evento
+        return HttpResponse(status=202) # Accepted
+
+    except (ValueError, json.JSONDecodeError) as e:
+        # Si hay un error de validación o formato, lo registramos y respondemos mal
+        logger.error(f"Error procesando el webhook de RISC: {e}")
+        return JsonResponse({'error': str(e)}, status=400) # Bad Request
