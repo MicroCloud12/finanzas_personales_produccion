@@ -57,7 +57,7 @@ class Command(BaseCommand):
 
         # ¡IMPORTANTE! Cambia esta URL por la URL real de tu servidor en producción
         # Para pruebas locales, puedes usar un servicio como ngrok para exponer tu localhost.
-        receiver_endpoint = "https://tu-dominio.com/risc-webhook/"
+        receiver_endpoint = "https://www.prismavault.mx/risc-webhook/"
 
         events_requested = [
             "https://schemas.openid.net/secevent/risc/event-type/account-disabled",
