@@ -19,14 +19,14 @@
             + Añadir Inversión
         </a>
         
-        {% if es_usuario_premium %}
+       <!-- {% if es_usuario_premium %}-->
           <a href="{% url 'procesamiento_inversiones' %}" class="w-full sm:w-auto text-center bg-green-600 text-white font-semibold px-4 py-2 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
             + Añadir Automáticamente
           </a>
           <a href="{% url 'revisar_inversiones' %}" class="w-full sm:w-auto text-center bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
             Revisar Inversiones Pendientes
           </a>
-        {% else %}
+        <!--{% else %}
           <div class="w-full sm:w-auto text-center bg-gray-100 hover:bg-gray-300 font-bold py-2 px-4 rounded">
               <button disabled class="w-full bg-gray-400 text-white font-semibold px-6 py-2 rounded-lg cursor-not-allowed">
                   ✨ Iniciar Sincronización Automática
@@ -36,7 +36,7 @@
                   <a href="{% url 'gestionar_suscripcion' %}" class="text-indigo-600 font-bold hover:underline">¡Actualiza tu plan!</a>
               </p>
           </div>
-        {% endif %}
+        {% endif %}-->
     </div>
 
     {% include 'partials/_error_message.html'%}
