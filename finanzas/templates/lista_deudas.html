@@ -58,10 +58,10 @@
                             
                             {# La lógica para la automatización ahora está aquí, dentro del bucle. #}
                             {# Solo se mostrará si el usuario es premium y la deuda es un préstamo. #}
-                            {% if es_usuario_premium and deuda.tipo_deuda == 'PRESTAMO' %}
+                            
                                 <a href="{% url 'procesamiento_deudas' deuda.id %}" class="text-green-600 hover:text-green-900 ml-4 font-semibold">Sincronizar Tabla</a>
                                 <a href="{% url 'revisar_amortizaciones' deuda.id %}" class="text-purple-600 hover:text-purple-900 ml-4 font-semibold">Revisar Pendientes</a>
-                            {% endif %}
+                            
                         </td>
                     </tr>
                 {% empty %}
