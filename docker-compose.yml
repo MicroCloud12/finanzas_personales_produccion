@@ -48,7 +48,7 @@ services:
 
   celery:
     build: .
-    command: celery -A config worker -l info --concurrency=15
+    command: celery -A config worker -l info
     restart: always
     env_file:
       - .env
