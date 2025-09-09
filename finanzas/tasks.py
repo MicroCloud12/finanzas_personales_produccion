@@ -211,6 +211,7 @@ def process_drive_investments(user_id):
         # Manejo de errores
         return {'status': 'ERROR', 'message': str(e)}
 
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_single_amortization(self, user_id: int, file_id: str, file_name: str, mime_type: str, deuda_id: int):
     """Procesa un único archivo de tabla de amortización."""

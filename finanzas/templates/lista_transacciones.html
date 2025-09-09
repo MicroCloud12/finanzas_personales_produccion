@@ -12,6 +12,8 @@
     <a href="{% url 'crear_transacciones' %}" class="w-full sm:w-auto text-center bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
       + Nueva Transacción
     </a>
+    
+    {% if es_usuario_premium %}
       {# Si el usuario ES premium, mostramos los botones funcionales #}
       <a href="{% url 'procesamiento_automatico' %}" class="w-full sm:w-auto text-center bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
         + Añadir Automáticamente
@@ -19,6 +21,18 @@
       <a href="{% url 'revisar_tickets' %}" class="w-full sm:w-auto text-center bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
         Revisar Tickets Pendientes
       </a>
+    {% else %}
+      {# Si el usuario NO es premium, mostramos un CTA para actualizar el plan #}
+      <div class="w-full sm:flex-1 p-4 bg-gray-100 rounded-lg border border-gray-200">
+        <button disabled class="w-full bg-gray-400 text-white font-semibold px-6 py-2 rounded-lg cursor-not-allowed">
+          ✨ Iniciar Sincronización Automática
+        </button>
+        <p class="mt-2 text-sm text-gray-700 text-center">
+          Esta es una función premium. 
+          <a href="{% url 'gestionar_suscripcion' %}" class="text-indigo-600 font-bold hover:underline">¡Actualiza tu plan!</a>
+        </p>
+      </div>
+    {% endif %}
   </div>
 <div class="bg-white p-4 rounded-lg shadow-md mt-6">
     <form method="GET" action="" class="grid grid-cols-1 sm:grid-cols-3 items-end gap-4">

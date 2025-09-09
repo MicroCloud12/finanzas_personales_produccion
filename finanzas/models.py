@@ -1,8 +1,8 @@
 from django.db import models
-from django.contrib.auth.models import User
 from django.db.models import F
-from django.utils import timezone
 from django.conf import settings
+from django.utils import timezone
+from django.contrib.auth.models import User
 
 
 class registro_transacciones(models.Model):
@@ -20,29 +20,66 @@ class registro_transacciones(models.Model):
     cuenta_origen = models.CharField(max_length=100)
     cuenta_destino = models.CharField(max_length=100)
     deuda_asociada = models.ForeignKey('Deuda', on_delete=models.SET_NULL, null=True, blank=True, related_name='pagos')
+    
+    # Este es el campo que estamos modificando
+    TIPO_PAGO_CHOICES = [
+        ('MENSUALIDAD', 'Pago de Mensualidad'),
+        ('CAPITAL', 'Pago a Capital'),
+    ]
+    # LA LÍNEA CLAVE ES AÑADIR default='MENSUALIDAD'
+    tipo_pago = models.CharField(max_length=15, choices=TIPO_PAGO_CHOICES, default='MENSUALIDAD')
+
 
     def __str__(self):
         return f"{self.id} - {self.descripcion}"
 
-    # --- LÓGICA CORRECTA PARA GUARDAR UNA TRANSACCIÓN ---
+    # Tu método save que modificamos anteriormente va aquí...
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)  # Guarda la transacción primero
+        super().save(*args, **kwargs)
 
         if self.deuda_asociada:
             deuda = self.deuda_asociada
-            if deuda.tipo_deuda == 'TARJETA_CREDITO':
+            
+            if self.tipo_pago == 'CAPITAL':
                 deuda.saldo_pendiente -= self.monto
                 deuda.save()
-            elif deuda.tipo_deuda == 'PRESTAMO':
+
+                monto_pago_capital = self.monto
+                # --- ¡AQUÍ ESTÁ LA CORRECCIÓN CLAVE! ---
+                # Ordenamos de la primera a la última para pagar las cuotas en orden.
+                cuotas_pendientes = PagoAmortizacion.objects.filter(
+                    deuda=deuda, pagado=False
+                ).order_by('numero_cuota') # Quitamos el signo '-'
+
+                for cuota in cuotas_pendientes:
+                    if monto_pago_capital <= 0:
+                        break
+                    
+                    # Comparamos con el capital de la cuota
+                    if monto_pago_capital >= cuota.capital:
+                        cuota.pagado = True
+                        cuota.save()
+                        monto_pago_capital -= cuota.capital
+                    else:
+                        # Si el pago no cubre toda la cuota, nos detenemos.
+                        # Una mejora futura podría ser manejar pagos parciales a capital.
+                        break
+
+            elif deuda.tipo_deuda == 'TARJETA_CREDITO':
+                # Esta lógica sigue igual
+                deuda.saldo_pendiente -= self.monto
+                deuda.save()
+
+            elif deuda.tipo_deuda == 'PRESTAMO' and self.tipo_pago == 'MENSUALIDAD':
+                # Esta lógica sigue igual
                 cuota_a_pagar = PagoAmortizacion.objects.filter(deuda=deuda, pagado=False).order_by('numero_cuota').first()
                 if cuota_a_pagar:
                     cuota_a_pagar.pagado = True
                     cuota_a_pagar.transaccion_pago = self
                     cuota_a_pagar.save()
-                    # Actualiza el saldo usando el 'capital' de la cuota, no un campo de la transacción.
                     deuda.saldo_pendiente = F('saldo_pendiente') - cuota_a_pagar.capital
                     deuda.save()
-
+ 
 class GoogleCredentials(models.Model):
     # Un enlace uno-a-uno con el usuario de Django. Cada usuario solo puede tener un set de credenciales.
     user = models.OneToOneField(User, on_delete=models.CASCADE)

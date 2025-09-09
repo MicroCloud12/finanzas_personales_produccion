@@ -1,3 +1,4 @@
+# finanzas/services.py
 import os
 import json
 import jwt
@@ -232,7 +233,7 @@ class GeminiService:
 
             Ahora, analiza la siguiente imagen y extrae todas las filas de la tabla de amortización:
         """
-    
+
     def _generate_and_parse(self, prompt: str, content) -> dict:
         """Genera la respuesta de Gemini y devuelve el JSON parseado."""
         response = self.model.generate_content([prompt, content])
@@ -246,11 +247,11 @@ class GeminiService:
                 "error": "Respuesta no válida de la IA",
                 "raw_response": cleaned_response
             }
+    '''
+    Extraccion de datos de los tickets de imágenes y PDFs utilizando Gemini.
+    '''
     def extract_data_from_image(self, image: Image.Image) -> dict:
         return self._generate_and_parse(self.prompt_tickets, image)
-    
-    def extract_data_from_inversion(self, image: Image.Image) -> dict:
-        return self._generate_and_parse(self.prompt_inversion, image)
     
     def extract_data_from_pdf(self, pdf_bytes: bytes) -> dict:
         """Extrae datos de un PDF utilizando Gemini."""
@@ -261,7 +262,13 @@ class GeminiService:
             }
         }
         return self._generate_and_parse(self.prompt_tickets, pdf_part)
-
+    
+    '''
+    Extraccion de datos de las inversiones de imágenes y PDFs utilizando Gemini.
+    '''
+    def extract_data_from_inversion(self, image: Image.Image) -> dict:
+        return self._generate_and_parse(self.prompt_inversion, image)
+    
     def extract_inversion_from_pdf(self, pdf_bytes: bytes) -> dict:
         """Extrae datos de un PDF de inversión utilizando Gemini."""
         pdf_part = {
@@ -272,6 +279,9 @@ class GeminiService:
         }
         return self._generate_and_parse(self.prompt_inversion, pdf_part)
     
+    '''
+    Extraccion de datos de las deudas de imágenes y PDFs utilizando Gemini.
+    '''
     def extract_deudas_from_image(self, image: Image.Image) -> dict:
         """Extrae datos de una imagen de inversión utilizando Gemini."""
         return self._generate_and_parse(self.prompt_deudas, image)

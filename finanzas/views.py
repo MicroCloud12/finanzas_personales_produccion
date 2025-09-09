@@ -1,5 +1,4 @@
 import json
-import jwt
 import logging
 from decimal import Decimal
 from django.utils import timezone
@@ -7,24 +6,30 @@ from django.urls import reverse
 from django.contrib import messages
 from django.contrib.auth import login
 from datetime import datetime, timedelta
+from django.http import HttpResponse, JsonResponse
 from django.core.mail import send_mail
 from django.conf import settings
-from django.db.models import Sum
-from decimal import Decimal
 from django.db.models import Sum, Q
 from django.contrib.auth.models import User
 from django.utils.dateformat import DateFormat
 from django.db.models.functions import TruncMonth
 from celery.result import AsyncResult, GroupResult
-from django.http import HttpResponse, JsonResponse,HttpResponseBadRequest
+from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from .utils import parse_date_safely, generar_tabla_amortizacion
 from django.shortcuts import render, redirect, get_object_or_404
+# Actualizamos las importaciones de tareas
 from .tasks import process_drive_tickets, process_drive_investments, process_drive_amortizations
 from .forms import TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, DeudaForm, PagoAmortizacionForm
 from .services import TransactionService, MercadoPagoService, StockPriceService, InvestmentService, RISCService
-from .models import registro_transacciones, Suscripcion, TransaccionPendiente, inversiones, GananciaMensual,GananciaMensual, PendingInvestment, Deuda, PagoAmortizacion, AmortizacionPendiente
+# Actualizamos las importaciones de modelos
+from .models import (
+    registro_transacciones, Suscripcion, TransaccionPendiente, 
+    inversiones, GananciaMensual, PendingInvestment, Deuda, 
+    PagoAmortizacion, AmortizacionPendiente
+)
+
 
 
 logger = logging.getLogger(__name__)
@@ -64,7 +69,7 @@ def registro(request):
     return render(request, 'registro.html', context)
 
 '''
-Views relacionadas a las trabsacciones
+Views relacionadas a las transacciones
 '''
 @login_required
 def aprobar_todos_tickets(request):
@@ -898,26 +903,29 @@ def terminos_servicio(request):
     """
     return render(request, 'terminos_servicio.html')
 
-@csrf_exempt
+@csrf_exempt # Es crucial para permitir que un servicio externo como Google haga POST
 def risc_webhook(request):
+    """
+    Endpoint para recibir y procesar notificaciones de seguridad de Google RISC.
+    """
     if request.method != 'POST':
-        return JsonResponse({'error': 'Método no permitido'}, status=405)
+        return HttpResponse(status=405) # Method Not Allowed
 
     try:
-        token = request.body.decode('utf-8')
-        if not token:
-            return HttpResponseBadRequest("Cuerpo de la petición vacío.")
-
+        # El cuerpo del request es el token de seguridad (JWT)
+        security_token = request.body.decode('utf-8')
+        
+        # 1. Validamos el token usando nuestro servicio
         risc_service = RISCService()
-        # Llamamos a tu única función que hace todo el trabajo.
-        risc_service.validate_token(token)
+        payload = risc_service.validate_token(security_token)
+        
+        # 2. Procesamos los eventos dentro del token
+        risc_service.process_security_event(payload)
 
-        return JsonResponse({}, status=202)
+        # 3. Respondemos a Google que hemos recibido y aceptado el evento
+        return HttpResponse(status=202) # Accepted
 
-    except (jwt.exceptions.DecodeError, ValueError) as e:
-        logger.error(f"Error procesando el webhook de RISC: Token inválido - {e}")
-        return HttpResponseBadRequest("Token inválido o malformado.")
-
-    except Exception as e:
-        logger.error(f"Error interno procesando el webhook de RISC: {e}")
-        return JsonResponse({'error': f"Error interno del servidor: {e}"}, status=500)
+    except (ValueError, json.JSONDecodeError) as e:
+        # Si hay un error de validación o formato, lo registramos y respondemos mal
+        logger.error(f"Error procesando el webhook de RISC: {e}")
+        return JsonResponse({'error': str(e)}, status=400) # Bad Request
