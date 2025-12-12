@@ -28,6 +28,9 @@ class registro_transacciones(models.Model):
     ]
     # LA LÍNEA CLAVE ES AÑADIR default='MENSUALIDAD'
     tipo_pago = models.CharField(max_length=15, choices=TIPO_PAGO_CHOICES, default='MENSUALIDAD')
+    
+    # Campo para guardar metadatos extra (como RFC, Folio de factura, etc.)
+    datos_extra = models.JSONField(null=True, blank=True)
 
 
     def __str__(self):
@@ -309,3 +312,47 @@ class AmortizacionPendiente(models.Model):
 
     def __str__(self):
         return f"Amortización Pendiente para '{self.deuda.nombre}' del archivo '{self.nombre_archivo}'"
+    
+class TiendaFacturacion(models.Model):
+    """
+    Guarda la configuración específica de cada tienda.
+    Ejemplo:
+    tienda: "CADENA COMERCIAL OXXO"
+    campos_requeridos: ["Folio de Venta", "Fecha", "Total"]
+    """
+    tienda = models.CharField(max_length=150, unique=True, help_text="Nombre normalizado de la tienda")
+    # Usamos JSONField para guardar una lista flexible de strings
+    campos_requeridos = models.JSONField(default=list, help_text="Lista de llaves que necesitamos extraer para esta tienda")
+
+    def __str__(self):
+        return f"Configuración para {self.tienda}"
+
+
+class Factura(models.Model):
+    """
+    Almacena las facturas/comprobantes independientes de las transacciones.
+    Permite gestionar el historial de facturación por separado.
+    """
+    ESTADOS = (
+        ('pendiente', 'Pendiente de Facturar'),
+        ('facturado', 'Facturado'),
+    )
+    
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    tienda = models.CharField(max_length=150, help_text="Nombre del establecimiento")
+    fecha_emision = models.DateField(help_text="Fecha del ticket/comprobante")
+    total = models.DecimalField(max_digits=12, decimal_places=2, help_text="Monto total")
+    
+    # Datos extraídos para facturación (RFC, Folio, etc.)
+    datos_facturacion = models.JSONField(default=dict, help_text="Datos extraídos para generar la factura")
+    
+    estado = models.CharField(max_length=15, choices=ESTADOS, default='pendiente')
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-fecha_emision']
+        verbose_name = 'Factura'
+        verbose_name_plural = 'Facturas'
+    
+    def __str__(self):
+        return f"Factura de {self.tienda} - ${self.total} ({self.fecha_emision})"
