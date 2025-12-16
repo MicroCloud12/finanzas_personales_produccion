@@ -61,6 +61,7 @@ function setupMobileMenu() {
         });
     }
 }
+
 document.addEventListener('DOMContentLoaded', () => {
     fadeFlashMessage();
     setupProfileMenu();
