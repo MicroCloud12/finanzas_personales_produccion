@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from .utils import parse_date_safely
 from celery import shared_task, group
 from django.contrib.auth.models import User
-from .services import GoogleDriveService, StockPriceService, TransactionService, InvestmentService, get_gemini_service, ExchangeRateService
+from .services import GoogleDriveService, StockPriceService, TransactionService, InvestmentService, get_gemini_service, ExchangeRateService, MistralOCRService, BillingService
 from .models import Deuda, AmortizacionPendiente, PagoAmortizacion, TiendaFacturacion, Factura
 
 logger = logging.getLogger(__name__)
@@ -300,95 +300,106 @@ def process_drive_amortizations(user_id: int, deuda_id: int):
 
     # ... (código existente) ...
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def process_single_invoice(self, user_id: int, file_id: str, file_name: str, mime_type: str):
     """
-    Procesa un ticket para fines de FACTURACIÓN.
-    1. Obtiene tiendas conocidas (Tabla 1).
-    2. Envía a Gemini con ese contexto.
-    3. Guarda en el modelo Factura (Tabla 2).
+    Procesa un ticket para FACTURACIÓN.
+    Optimizaciones:
+    - Usa PIL para redimensionar (rápido).
+    - Usa Gemini Flash (rápido).
+    - Maneja ResourceExhausted para no atorarse en loops infinitos.
     """
     try:
         user = User.objects.get(id=user_id)
+        
+        # 1. Drive: Obtener archivo
         gdrive_service = GoogleDriveService(user)
+        file_content = gdrive_service.get_file_content(file_id)
+        file_bytes = file_content.getvalue()
+
+        # 2. Mistral OCR: Obtener texto (Optimizado sin OpenCV pesado)
+        mistral_service = MistralOCRService()
+        # Nota: Asegúrate de que MistralOCRService tenga el método 'get_text_from_image' 
+        # con la optimización de PIL que te di en la respuesta anterior.
+        ocr_result = mistral_service.get_text_from_image(file_bytes, mime_type)
+        
+        if "error" in ocr_result:
+            return {'status': 'FAILURE', 'file_name': file_name, 'error': f"Mistral: {ocr_result['error']}"}
+            
+        texto_ticket = ocr_result['text_content']
+
+        # Validación Rápida: Ignorar transferencias
+        if "TRANSFERENCIA" in texto_ticket.upper() and "TICKET" not in texto_ticket.upper():
+             return {'status': 'SKIPPED', 'file_name': file_name, 'reason': 'Parece transferencia'}
+
+        # 3. Contexto: Identificar tienda localmente (Ultra rápido)
+        contexto_str = BillingService.preparar_contexto_para_gemini(texto_ticket)
+
+        # 4. Gemini: Extracción Inteligente
         gemini_service = get_gemini_service()
         
-        # Obtenemos el contenido del archivo
-        file_content = gdrive_service.get_file_content(file_id)
-        
-        # Preparamos los datos (usando la función corregida que devuelve bytes)
-        file_data = load_and_optimize_image(file_content) if 'image' in mime_type else file_content.getvalue()
-
-        # --- PASO 1: Contexto de Tiendas Conocidas (Tabla 1) ---
-        # Consultamos qué tiendas ya tenemos configuradas para decirle a Gemini qué buscar.
         try:
-            tiendas_conocidas = TiendaFacturacion.objects.all().values('tienda', 'campos_requeridos')
-            lista_tiendas = list(tiendas_conocidas)
-            contexto_str = json.dumps(lista_tiendas, ensure_ascii=False) if lista_tiendas else ""
-        except Exception:
-            contexto_str = "" 
+            # Usamos tu prompt existente
+            datos_extraidos = gemini_service.extract_from_text(
+                prompt_name="facturacion_from_text_with_context", 
+                text=texto_ticket, 
+                context=contexto_str
+            )
+        except ResourceExhausted:
+            # SI GEMINI TE BLOQUEA (Error 429), devolvemos estado THROTTLED
+            # Esto evita que Celery reintente infinitamente y sature tu worker.
+            logger.warning(f"Rate Limit en Gemini para {file_name}. Pausando...")
+            # Opcional: self.retry(countdown=60) si quieres reintentar en 1 minuto
+            return {'status': 'THROTTLED', 'file_name': file_name, 'error': 'Cuota de Gemini excedida (15 RPM).'}
+        except Exception as e:
+             return {'status': 'FAILURE', 'file_name': file_name, 'error': f"Gemini Error: {str(e)}"}
 
-        # --- PASO 2: Extracción con Gemini ---
-        extracted_data = gemini_service.extract_data(
-            prompt_name="facturacion",
-            file_data=file_data,
-            mime_type=mime_type,
-            context=contexto_str
-        )
+        if not datos_extraidos:
+             return {'status': 'FAILURE', 'file_name': file_name, 'error': 'JSON vacío de Gemini'}
 
-        if extracted_data.get("error"):
-            return {'status': 'FAILURE', 'file_name': file_name, 'error': extracted_data['raw_response']}
-
-        # Validamos que sea un ticket y no una transferencia
-        tipo_documento = extracted_data.get("tipo_documento", "").upper()
-        if tipo_documento == "TRANSFERENCIA":
-            return {'status': 'SKIPPED', 'file_name': file_name, 'reason': 'Es una transferencia, no aplica para facturación'}
-
-        # --- PASO 3: Guardar en Tabla de Resultados (Tabla 2: Factura) ---
+        # 5. Guardar en Factura (Flujo de Revisión)
+        # Usamos el modelo Factura con estado 'pendiente' en lugar de TransaccionPendiente
         
-        # Intentamos vincular con la configuración existente
-        nombre_tienda = extracted_data.get("tienda", "DESCONOCIDO").upper()
-        config_tienda = TiendaFacturacion.objects.filter(tienda=nombre_tienda).first()
-
-        # Limpiamos y convertimos datos básicos
-        fecha_str = extracted_data.get("fecha_emision") or extracted_data.get("fecha")
-        fecha_obj = parse_date_safely(fecha_str)
+        from decimal import Decimal
         
-        total_str = str(extracted_data.get("total_pagado") or extracted_data.get("total") or 0)
+        # --- NORMALIZACIÓN DE NOMBRE DE TIENDA ---
+        nombre_raw = datos_extraidos.get("tienda") or datos_extraidos.get("establecimiento") or "DESCONOCIDO"
+        nombre_raw = nombre_raw.upper().strip()
         
-        # Creamos el registro de Factura
+        tienda_final = nombre_raw
+        
+        # Intentamos encontrar la tienda oficial en la BD
+        tienda_obj = BillingService.buscar_tienda_fuzzy(nombre_raw)
+        if tienda_obj:
+            tienda_final = tienda_obj.tienda
+            logger.info(f"Tienda normalizada: {nombre_raw} -> {tienda_final}")
+        
         Factura.objects.create(
             propietario=user,
-            tienda=nombre_tienda,
-            fecha_emision=fecha_obj,
-            total=Decimal(total_str),
-            
-            # Aquí guardamos TODO el JSON que nos dio Gemini.
-            # Esto permite que si Gemini encontró "Folio" y "RFC", se guarden aquí
-            # para mostrarlos luego en el frontend.
-            datos_facturacion=extracted_data, 
-            
-            # Guardamos el ID de Drive para que el usuario pueda ver la imagen original
+            tienda=tienda_final, # Guardamos el nombre normalizado
+            fecha_emision=parse_date_safely(datos_extraidos.get("fecha")),
+            total=Decimal(str(datos_extraidos.get("total", 0))),
+            datos_facturacion=datos_extraidos.get("campos_adicionales", {}), # Guardamos el JSON con los detalles
             archivo_drive_id=file_id,
-            
-            # Vinculamos la configuración si la encontramos (para saber la URL del portal, etc.)
-            configuracion_tienda=config_tienda,
-            
-            estado='pendiente'
+            estado='pendiente' 
         )
 
-        return {'status': 'SUCCESS', 'file_name': file_name, 'tienda': nombre_tienda}
+        return {'status': 'SUCCESS', 'file_name': file_name, 'tienda': tienda_final}
 
     except Exception as e:
-        self.retry(exc=e)
+        logger.error(f"Error fatal procesando {file_name}: {e}")
         return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
 
 @shared_task
 def process_drive_for_invoices(user_id: int):
-    """Busca tickets en Drive y los procesa con el prompt de facturación."""
+    """
+    Tarea Maestra: Busca archivos y lanza los workers.
+    """
     try:
         user = User.objects.get(id=user_id)
         gdrive_service = GoogleDriveService(user)
+        
+        # Listamos archivos (Asegúrate que la carpeta exista en Drive)
         files_to_process = gdrive_service.list_files_in_folder(
             folder_name="Tickets de Compra",
             mimetypes=['image/jpeg', 'image/png', 'application/pdf']
@@ -397,6 +408,9 @@ def process_drive_for_invoices(user_id: int):
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
 
+        # Lanzamos el grupo de tareas
+        # IMPORTANTE: Aquí es donde Python busca 'process_single_invoice'.
+        # Debe estar definida ARRIBA de esta línea o importada correctamente.
         job = group(
             process_single_invoice.s(user.id, item['id'], item['name'], item['mimeType'])
             for item in files_to_process
