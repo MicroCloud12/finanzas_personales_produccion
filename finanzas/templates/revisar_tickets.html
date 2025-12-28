@@ -112,12 +112,6 @@
                                     {% include 'partials/_ticket_cuentadestino_options.html' %}
                                 </select>
                             </td>
-                            <!--<td class="px-6 py-4 bg-white">
-                                <select name="tarjeta_{{ ticket.id }}"
-                                    class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-lg shadow-sm bg-gray-50">
-                                    {% include 'partials/_ticket__options.html' %}
-                                </select>
-                            </td>-->
                             <td class="px-6 py-4 bg-white text-center">
                                 <div class="flex items-center justify-center gap-2">
                                     <button type="submit" formaction="{% url 'aprobar_ticket' ticket.id %}"
