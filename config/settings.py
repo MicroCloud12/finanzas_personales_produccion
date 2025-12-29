@@ -290,3 +290,6 @@ SESSION_EXPIRE_AFTER_LAST_ACTIVITY = True
 
 # URL a la que se redirige al usuario cuando su sesión expira.
 SESSION_TIMEOUT_REDIRECT = 'login' 
+
+if DEBUG:
+    SITE_ID = 2
