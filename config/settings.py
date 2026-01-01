@@ -28,18 +28,6 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
-
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-
-# Redirige todas las peticiones HTTP a HTTPS.
-SECURE_SSL_REDIRECT = True
-
-# Asegura que las cookies de sesión solo se envíen por HTTPS.
-SESSION_COOKIE_SECURE = True
-
-# Asegura que la cookie CSRF solo se envíe por HTTPS.
-CSRF_COOKIE_SECURE = True
 
 # Application definition
 
@@ -143,17 +131,17 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 # La URL para acceder a los archivos estáticos en el navegador
 
 # El directorio donde `collectstatic` reunirá todos los archivos
 # para la producción. No necesita estar en .env.
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Los directorios donde Django buscará tus archivos estáticos
 # (CSS, JS, imágenes de tu proyecto)
 STATICFILES_DIRS = [
-    BASE_DIR / "theme" / "static",
+    os.path.join(BASE_DIR, 'static'),
 ]
 
 # Configuración de almacenamiento para WhiteNoise (optimiza el caché).
@@ -183,26 +171,12 @@ LOGOUT_REDIRECT_URL = 'home'
 # config/settings.py
 
 # --- CELERY SETTINGS ---
-CELERY_BROKER_URL = 'redis://redis:6379/0'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 
-# Basic logging configuration
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
-}
 
 SITE_ID = 1
 # Allauth Settings
@@ -215,12 +189,12 @@ SOCIALACCOUNT_PROVIDERS = {
         'SCOPE': [
             'profile',
             'email',
-            'https://www.googleapis.com/auth/drive.readonly', # Permiso para LEER archivos de Drive
+            'https://www.googleapis.com/auth/drive.readonly',
         ],
         'AUTH_PARAMS': {
-            'access_type': 'offline', # crucial para obtener un refresh_token y acceder cuando el usuario no está
-            'include_granted_scopes': 'true'
-        }
+            'access_type': 'offline',  # <-- ESTE ES EL CAMBIO CLAVE
+        },
+        'OAUTH_PKCE_ENABLED': True,
     }
 }
 
@@ -278,7 +252,6 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
-
 # --- DJANGO SESSION TIMEOUT SETTINGS ---
 # Tiempo en segundos que una sesión puede estar inactiva. 
 # Después de este tiempo, el usuario tendrá que volver a iniciar sesión.
@@ -291,5 +264,10 @@ SESSION_EXPIRE_AFTER_LAST_ACTIVITY = True
 # URL a la que se redirige al usuario cuando su sesión expira.
 SESSION_TIMEOUT_REDIRECT = 'login' 
 
-if DEBUG:
-    SITE_ID = 2
+ALLOWED_HOSTS = [
+    'prismavault.mx',
+    'www.prismavault.mx', 
+    'localhost', 
+    '127.0.0.1', 
+    '0.0.0.0'
+]
