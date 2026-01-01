@@ -3,7 +3,6 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
     # 2. Agrega estas rutas para manejar los archivos raíz
     path('favicon.ico', RedirectView.as_view(url=staticfiles_storage.url('/static/img/favicon.ico'))),
