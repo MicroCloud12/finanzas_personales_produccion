@@ -16,8 +16,14 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
+from django.contrib.staticfiles.storage import staticfiles_storage
 
 urlpatterns = [
+    # 2. Agrega estas rutas para manejar los archivos raíz
+    path('favicon.ico', RedirectView.as_view(url=staticfiles_storage.url('/static/img/favicon.ico'))),
+    # Asumiendo que robots.txt está en tu carpeta static raíz
+    path('robots.txt', RedirectView.as_view(url=staticfiles_storage.url('/static/robots.txt'))),
     path('admin/', admin.site.urls),
     path('', include('finanzas.urls')),
     path('accounts/', include('allauth.urls')),
