@@ -33,7 +33,7 @@ from .services import TransactionService, MercadoPagoService, StockPriceService,
 from .models import (
     registro_transacciones, Suscripcion, TransaccionPendiente, 
     inversiones, GananciaMensual, PendingInvestment, Deuda, 
-    PagoAmortizacion, AmortizacionPendiente, Factura
+    PagoAmortizacion, AmortizacionPendiente, Factura, PortfolioHistory
 )
 from django.http import JsonResponse
 from .models import TiendaFacturacion # Asegúrate de tener los modelos importados
@@ -262,36 +262,58 @@ y ganancias mensuales, e inversiones.
 '''
 @login_required
 def vista_dashboard(request):
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    # --- LÓGICA PARA LA GRÁFICA DE LÍNEAS ---
-    # Obtenemos todas las compras de inversiones del usuario, ordenadas por fecha
-    compras = inversiones.objects.filter(propietario=request.user).order_by('fecha_compra')
-
-    chart_labels = []
-    chart_data = []
-    capital_acumulado = Decimal('0.0')
-
-    # Agrupamos las compras por día y calculamos el capital acumulado
-    compras_por_dia = {}
-    for compra in compras:
-        fecha_str = compra.fecha_compra.strftime('%Y-%m-%d')
-        if fecha_str not in compras_por_dia:
-            compras_por_dia[fecha_str] = Decimal('0.0')
-        compras_por_dia[fecha_str] += compra.costo_total_adquisicion
-
-    # Ordenamos las fechas y construimos los datos del gráfico
-    fechas_ordenadas = sorted(compras_por_dia.keys())
-    for fecha in fechas_ordenadas:
-        capital_acumulado += compras_por_dia[fecha]
-        chart_labels.append(fecha)
-        chart_data.append(str(capital_acumulado))
-    # ----------------------------------------------
-    # Verificamos si la suscripción está activa con nuestro método del modelo.
-    es_usuario_premium = suscripcion.is_active()
+    # Definimos fechas al inicio para usarlas en todo el dashboard
     current_year = datetime.now().year
     current_month = datetime.now().month
     year = int(request.GET.get('year', current_year))
     month = int(request.GET.get('month', current_month))
+
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    # --- LÓGICA PARA LA GRÁFICA DE AHORRO (SAVINGS GROWTH) ---
+    # Calculamos el ahorro acumulado mes a mes para el año seleccionado
+    # Usamos 'year' obtenido de los params GET (o año actual por defecto)
+    savings_qs = registro_transacciones.objects.filter(
+        propietario=request.user,
+        fecha__year=year
+    ).filter(
+        # 1. Todo lo que esté categorizado explícitamente como Ahorro (menos Gastos)
+        (Q(categoria__iexact='Ahorro') & ~Q(tipo__iexact='GASTO')) |
+        # 2. Transferencias directas a la Cuenta Ahorro
+        Q(tipo__iexact='TRANSFERENCIA', cuenta_destino__iexact='Cuenta Ahorro') | 
+        # 3. Ingresos que entraron directo a Cuenta Ahorro (En Ingresos, 'cuenta_origen' suele ser destino/cuenta)
+        Q(tipo__iexact='INGRESO', cuenta_origen__iexact='Cuenta Ahorro')
+    ).annotate(mes=TruncMonth('fecha')).values('mes').annotate(total=Sum('monto')).order_by('mes')
+
+    savings_labels = []
+    savings_data = []
+    ahorro_acumulado = Decimal('0.0')
+    
+    # Mapa de ahorro por mes
+    ahorro_por_mes = {s['mes'].strftime('%Y-%m'): s['total'] for s in savings_qs}
+    
+    # Generamos los meses hasta el actual
+    current_date = datetime.now()
+    for m in range(1, 13):
+        # Si queremos proyectar todo el año o solo hasta hoy:
+        # Para "Growth Plan" se suele mostrar todo el año, pero solo tenemos datos hasta hoy.
+        # Mostremos hasta el mes actual para no tener una línea plana al final.
+        if m > current_date.month:
+            break
+            
+        mes_fecha = datetime(current_date.year, m, 1)
+        mes_key = mes_fecha.strftime('%Y-%m')
+        
+        monto_mes = ahorro_por_mes.get(mes_key, Decimal('0.0'))
+        ahorro_acumulado += monto_mes
+        
+        savings_labels.append(mes_fecha.strftime('%B')) # Nombre del mes
+        savings_data.append(str(ahorro_acumulado))
+        
+    chart_labels = savings_labels
+    chart_data = savings_data
+    # ----------------------------------------------
+    # Verificamos si la suscripción está activa con nuestro método del modelo.
+    es_usuario_premium = suscripcion.is_active()
     transacciones = registro_transacciones.objects.filter(
         propietario=request.user, 
         fecha__year=year, 
@@ -303,7 +325,7 @@ def vista_dashboard(request):
     agregados = transacciones.aggregate(
         ingresos_efectivo=Sum('monto', filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
         gastos_efectivo=Sum('monto', filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        ahorro_total=Sum('monto', filter=Q(tipo='TRANSFERENCIA', categoria='Ahorro', cuenta_origen='Efectivo Quincena', cuenta_destino='Cuenta Ahorro')),
+        ahorro_total=Sum('monto', filter=Q(tipo='Transferencia', categoria='Ahorro', cuenta_origen='Efectivo Quincena', cuenta_destino='Cuenta Ahorro')),
         transferencias_efectivo=Sum('monto', filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
         gastos_ahorro=Sum('monto', filter=Q(tipo='GASTO', cuenta_origen='Cuenta Ahorro')),
         ingresos_ahorro=Sum('monto', filter=Q(tipo='INGRESO', cuenta_origen='Cuenta Ahorro')),
@@ -329,7 +351,9 @@ def vista_dashboard(request):
 
     balance = ingresos - gastos - gastos_ahorro
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    ahorro = ahorro_total - gastos_ahorro + ingresos_ahorro + transferencias
+    
+    # --- CORRECCIÓN: Usamos el acumulado del año (igual que la gráfica) ---
+    ahorro = ahorro_acumulado
 
     context = {
         'ingresos': ingresos,
@@ -343,12 +367,79 @@ def vista_dashboard(request):
         'years': range(current_year, current_year - 5, -1),
         'months': range(1, 13),
         'es_usuario_premium': es_usuario_premium,
-        'inversion_inicial': inversion_inicial_usd,
-        'inversion_actual': inversion_actual,
-        'investment_chart_labels': json.dumps(chart_labels),
-        'investment_chart_data': json.dumps(chart_data),
+        'investment_chart_labels': chart_labels,
+        'investment_chart_data': chart_data,
     }
     return render(request, 'dashboard.html', context)
+
+@login_required
+def vista_portafolio(request):
+    """
+    Vista dedicada para el Portafolio de Inversiones.
+    """
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    es_usuario_premium = suscripcion.is_active()
+
+    # --- LÓGICA DE ACTIVOS ---
+    mis_inversiones = inversiones.objects.filter(propietario=request.user).order_by('-valor_actual_mercado')
+    
+    # Totales Generales
+    agregados = mis_inversiones.aggregate(
+        total_invertido=Sum('costo_total_adquisicion'),
+        valor_actual=Sum('valor_actual_mercado')
+    )
+    
+    total_invertido = agregados['total_invertido'] or Decimal('0.00')
+    valor_total = agregados['valor_actual'] or Decimal('0.00')
+    ganancia_total = valor_total - total_invertido
+    
+    # Porcentaje de ganancia total
+    porcentaje_ganancia = 0
+    if total_invertido > 0:
+        porcentaje_ganancia = ((valor_total - total_invertido) / total_invertido) * 100
+
+    # --- DATOS PARA GRÁFICAS ---
+    # --- DATOS PARA GRÁFICAS ---
+    # 1. Historia del Portafolio (Line/Area Chart - Diario)
+    # Consultamos el historial diario ya calculado
+    historial_diario = PortfolioHistory.objects.filter(usuario=request.user).order_by('fecha')
+    
+    chart_labels = []
+    chart_data = []
+    
+    # Si no hay historial diario (primer uso), intentamos usar lo mensual como fallback temporal
+    # o simplemente mostramos vacío hasta que corran el comando.
+    if historial_diario.exists():
+        for dia in historial_diario:
+            chart_labels.append(dia.fecha.strftime('%Y-%m-%d'))
+            chart_data.append(str(dia.valor_total))
+    else:
+        # Fallback: Usamos la lógica mensual anterior si no han corrido el script aún
+        historial_ganancias = GananciaMensual.objects.filter(propietario=request.user).order_by('mes')
+        # ... (Lógica de fallback omitida para limpieza, asumimos que correrán el script)
+        pass
+
+    # 2. Distribución (Doughnut)
+    # Agrupar por tipo (Cripto vs Acciones) o por Activo
+    distribucion_labels = []
+    distribucion_data = []
+    for inv in mis_inversiones[:5]: # Top 5 activos
+        distribucion_labels.append(inv.nombre_activo)
+        distribucion_data.append(float(inv.valor_actual_mercado))
+
+    context = {
+        'inversiones': mis_inversiones,
+        'valor_total': valor_total,
+        'total_invertido': total_invertido,
+        'ganancia_total': ganancia_total,
+        'porcentaje_ganancia': porcentaje_ganancia,
+        'chart_labels': json.dumps(chart_labels),
+        'chart_data': json.dumps(chart_data),
+        'dist_labels': json.dumps(distribucion_labels),
+        'dist_data': json.dumps(distribucion_data),
+        'es_usuario_premium': es_usuario_premium,
+    }
+    return render(request, 'portafolio.html', context)
 
 @login_required
 def datos_gastos_categoria(request):
@@ -1189,7 +1280,8 @@ def guardar_configuracion_tienda(request):
             tienda=nombre_tienda,
             defaults={
                 'campos_requeridos': campos_seleccionados,
-                'url_portal': url_portal
+                'url_portal': url_portal,
+                'configuracion_finalizada': True # ¡CAMBIO CLAVE! El usuario confirmó, así que "cerramos" la config.
             }
         )
 
