@@ -3,6 +3,12 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 
 urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('accounts/', include('allauth.urls')),
+    # 2. Agrega estas rutas para manejar los archivos raíz
+    path('favicon.ico', RedirectView.as_view(url=staticfiles_storage.url('img/favicon.ico'))),
+    # Asumiendo que robots.txt está en tu carpeta static raíz
+    path('robots.txt', RedirectView.as_view(url=staticfiles_storage.url('robots.txt'))),
     path('', views.home, name='home'),
     path('enviar-pregunta/', views.enviar_pregunta, name='enviar_pregunta'),
     path('transacciones/', views.crear_transacciones, name='crear_transacciones'),
