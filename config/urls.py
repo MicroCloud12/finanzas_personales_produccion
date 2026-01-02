@@ -20,10 +20,6 @@ from django.views.generic import RedirectView
 from django.contrib.staticfiles.storage import staticfiles_storage
 
 urlpatterns = [
-# CORRECCIÓN AQUÍ: Quitamos '/static/' del inicio de la ruta
-    path('favicon.ico', RedirectView.as_view(url=staticfiles_storage.url('img/favicon.ico'))),
-    # Si tienes robots.txt, asegúrate de que también esté sin /static/
-    path('robots.txt', RedirectView.as_view(url=staticfiles_storage.url('robots.txt'))),
     path('admin/', admin.site.urls),
     path('', include('finanzas.urls')),
     path('accounts/', include('allauth.urls')),

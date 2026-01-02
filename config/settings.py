@@ -263,11 +263,3 @@ SESSION_EXPIRE_AFTER_LAST_ACTIVITY = True
 
 # URL a la que se redirige al usuario cuando su sesión expira.
 SESSION_TIMEOUT_REDIRECT = 'login' 
-
-ALLOWED_HOSTS = [
-    'prismavault.mx',
-    'www.prismavault.mx', 
-    'localhost', 
-    '127.0.0.1', 
-    '0.0.0.0'
-]
