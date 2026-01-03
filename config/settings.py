@@ -269,6 +269,10 @@ ALLOWED_HOSTS = [
     'www.prismavault.mx', 
     'localhost', 
     '127.0.0.1', 
-    '0.0.0.0'
+    '0.0.0.0',
     '138.197.25.233'
 ]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
