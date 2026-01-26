@@ -292,15 +292,16 @@ def vista_dashboard(request):
     ahorro_por_mes = {s['mes'].strftime('%Y-%m'): s['total'] for s in savings_qs}
     
     # Generamos los meses hasta el actual
-    current_date = datetime.now()
+    # Generamos los meses para todo el año
+    # Se muestra todo el año para ver la proyección (Growth Plan)
     for m in range(1, 13):
-        # Si queremos proyectar todo el año o solo hasta hoy:
-        # Para "Growth Plan" se suele mostrar todo el año, pero solo tenemos datos hasta hoy.
-        # Mostremos hasta el mes actual para no tener una línea plana al final.
-        if m > current_date.month:
-            break
+        # Usamos 'year' (el año seleccionado) en lugar de current_date.year
+        try:
+            mes_fecha = datetime(year, m, 1)
+        except ValueError:
+             # Caso borde: si el usuario selecciona un año bisiesto o similar y hay error (raro en día 1)
+            continue
             
-        mes_fecha = datetime(current_date.year, m, 1)
         mes_key = mes_fecha.strftime('%Y-%m')
         
         monto_mes = ahorro_por_mes.get(mes_key, Decimal('0.0'))
@@ -320,17 +321,11 @@ def vista_dashboard(request):
         fecha__month=month
     )
 
-     # --- LA MAGIA DE LA OPTIMIZACIÓN ---
-    # Hacemos UNA SOLA CONSULTA para obtener todos los totales
-    agregados = transacciones.aggregate(
-        ingresos_efectivo=Sum('monto', filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        gastos_efectivo=Sum('monto', filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        ahorro_total=Sum('monto', filter=Q(tipo='Transferencia', categoria='Ahorro', cuenta_origen='Efectivo Quincena', cuenta_destino='Cuenta Ahorro')),
-        transferencias_efectivo=Sum('monto', filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
-        gastos_ahorro=Sum('monto', filter=Q(tipo='GASTO', cuenta_origen='Cuenta Ahorro')),
-        ingresos_ahorro=Sum('monto', filter=Q(tipo='INGRESO', cuenta_origen='Cuenta Ahorro')),
-    )
-
+     # --- LA MAGIA DE LA OPTIMIZACIÓN (VIA MANAGER) ---
+    # Delegamos toda la lógica compleja al Manager (SOLID: Single Responsibility)
+    # la view solo se encarga de recibir datos y pasarlos al template.
+    bal = registro_transacciones.objects.balance_dashboard(request.user, year, month)
+    
     # Igualmente, hacemos UNA SOLA CONSULTA para las inversiones
     agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
         total_inicial=Sum('costo_total_adquisicion'),
@@ -338,13 +333,13 @@ def vista_dashboard(request):
     )
     # --- FIN DE LA OPTIMIZACIÓN ---
 
-    # El resto de tu lógica para calcular y asignar valores es correcta y se mantiene
-    ingresos = agregados.get('ingresos_efectivo') or Decimal('0.00')
-    gastos = agregados.get('gastos_efectivo') or Decimal('0.00')
-    ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
-    transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
-    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
-    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
+    # Asignamos valores desde el diccionario 'bal'
+    ingresos = bal['ingresos_efectivo']
+    gastos = bal['gastos_efectivo']
+    ahorro_total = bal['ahorro_total']
+    transferencias = bal['transferencias_efectivo']
+    gastos_ahorro = bal['gastos_ahorro']
+    ingresos_ahorro = bal['ingresos_ahorro']
 
     inversion_inicial_usd = agregados_inversion.get('total_inicial') or Decimal('0.00')
     inversion_actual = agregados_inversion.get('total_actual') or Decimal('0.00')
@@ -776,22 +771,28 @@ def crear_inversion(request):
         if form.is_valid():
             nueva_inversion = form.save(commit=False)
             nueva_inversion.propietario = request.user
-            price_service = StockPriceService()
-            ticker = form.cleaned_data.get('emisora_ticker').upper()
-
-            # Obtenemos el precio como float desde el servicio
-            precio_actual_float = price_service.get_current_price(ticker)
+            # --- OPTIMIZACIÓN: EVITAR BLOQUEOS LARGOS ---
+            # 1. Intentamos obtener precio de caché (instantáneo)
+            # 2. Si no está en caché, usamos el precio de compra del usuario TEMPORALMENTE para no hacer esperar al navegador.
+            # 3. Lanzamos una tarea async para actualizar el precio real después (Mejora futura: Celery task).
             
-            # --- PASO 2: AQUÍ ESTÁ LA CORRECCIÓN ---
+            ticker = form.cleaned_data.get('emisora_ticker').upper()
+            try:
+                # Modificamos get_current_price para que tenga un timeout corto internamente o confiamos en el cache
+                precio_actual_float = price_service.get_current_price(ticker)
+            except Exception as e:
+                logger.warning(f"Timeout o error al obtener precio síncrono para {ticker}: {e}")
+                precio_actual_float = None
+
             if precio_actual_float is not None:
-                # Convertimos el float a un Decimal antes de asignarlo al modelo
-                # Usamos str() en el medio, es la forma más segura de evitar errores de precisión.
                 nueva_inversion.precio_actual_titulo = Decimal(str(precio_actual_float))
             else:
-                # Si la API falla, usamos el precio de compra como respaldo
+                # FALLBACK: Usamos el precio de compra si la API falla o tarda.
+                # Esto asegura que el usuario siempre reciba una respuesta rápida.
                 nueva_inversion.precio_actual_titulo = nueva_inversion.precio_compra_titulo
+                # AQUÍ podríamos disparar una tarea: update_price.delay(nueva_inversion.id)
             
-            nueva_inversion.save() # Ahora la multiplicación será entre dos Decimales
+            nueva_inversion.save()
             messages.success(request, f"Inversión en {ticker} guardada con éxito.")
             return redirect('lista_inversiones')
     else:
@@ -1103,6 +1104,26 @@ def revisar_factura_detalle(request, ticket_id):
                 messages.success(request, f"¡Entendido! Para {nombre_tienda} solo necesitamos: {', '.join(campos_seleccionados)}.")
             else:
                 messages.warning(request, "No seleccionaste ningún campo. La configuración no se guardó.")
+            
+            return redirect('revisar_factura', ticket_id=ticket_id)
+            
+        # --- FLUJO DE EDICIÓN (Corregir datos originales) ---
+        elif accion == 'editar_datos':
+            nuevo_tienda = request.POST.get('tienda')
+            nueva_fecha = request.POST.get('fecha_emision')
+            nuevo_total = request.POST.get('total')
+
+            if nuevo_tienda and nueva_fecha and nuevo_total:
+                factura_obj.tienda = nuevo_tienda
+                try:
+                    factura_obj.fecha_emision = parse_date_safely(nueva_fecha)
+                    factura_obj.total = Decimal(nuevo_total)
+                    factura_obj.save()
+                    messages.success(request, f"Datos actualizados para {nuevo_tienda}.")
+                except Exception as e:
+                    messages.error(request, f"Error al guardar los datos: {e}")
+            else:
+                 messages.error(request, "Faltan datos para actualizar la factura.")
             
             return redirect('revisar_factura', ticket_id=ticket_id)
             
