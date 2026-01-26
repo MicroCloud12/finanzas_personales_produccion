@@ -349,6 +349,24 @@ def vista_dashboard(request):
     
     # --- CORRECCIÓN: Usamos el acumulado del año (igual que la gráfica) ---
     ahorro = ahorro_acumulado
+    
+    # --- NUEVO: Cálculo de Deuda Total ---
+    # --- NUEVO: Cálculo de Deuda Total ---
+    # Sumamos el saldo pendiente de todas las deudas activas del usuario,
+    # pero distinguimos entre Tarjetas de Crédito y Préstamos.
+    todas_deudas = Deuda.objects.filter(propietario=request.user)
+    deuda_total = Decimal('0.00')
+    
+    for d in todas_deudas:
+        if d.tipo_deuda == 'TARJETA_CREDITO':
+            # Para TC: Deuda Real = Límite (monto_total) - Disponible (saldo_pendiente)
+            deuda_real = d.monto_total - d.saldo_pendiente
+            # Solo sumamos si es positivo (por si acaso el saldo pendiente es mayor al límite, aunque raro)
+            if deuda_real > 0:
+                deuda_total += deuda_real
+        else:
+            # Para Préstamos: Deuda Real = Saldo Pendiente
+            deuda_total += d.saldo_pendiente
 
     context = {
         'ingresos': ingresos,
@@ -362,6 +380,7 @@ def vista_dashboard(request):
         'years': range(current_year, current_year - 5, -1),
         'months': range(1, 13),
         'es_usuario_premium': es_usuario_premium,
+        'deuda_total': deuda_total,
         'investment_chart_labels': chart_labels,
         'investment_chart_data': chart_data,
     }
