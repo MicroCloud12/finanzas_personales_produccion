@@ -99,49 +99,36 @@ class GeminiService:
         self.prompts = { 
             "tickets": """
             Eres un asistente experto en contabilidad para un sistema de finanzas personales.
-            Tu tarea es analizar la imagen lo mas detallado posible de un documento y extraer la información clave con la máxima precisión.
+            Tu tarea es analizar la imagen lo mas detallado posible de un documento, extraer la información clave y CLASIFICARLA con precisión.
             Devuelve SIEMPRE la respuesta en formato JSON, sin absolutamente ningún texto adicional.
 
-            ### CONTEXTO:
-            El usuario ha subido una imagen de un ticket de compra o un comprobante de transferencia.
-            Necesito que identifiques el tipo de documento y extraigas los siguientes campos:
+            ### CONTEXTO DINÁMICO DEL USUARIO (Sus cuentas y opciones):
+            {context_str}
 
             ### FORMATO DE SALIDA ESTRICTO (JSON):
-            {
+            {{
               "tipo_documento": "(TICKET_COMPRA|TRANSFERENCIA|OTRO)",
               "fecha": "YYYY-MM-DD",
               "establecimiento": "Nombre del comercio o beneficiario",
-              "descripcion_corta": "Un resumen breve del gasto (ej. 'Renta depto', 'Supermercado', 'Cena con amigos')",
+              "descripcion_corta": "Un resumen breve del gasto (ej. 'Renta depto', 'Supermercado')",
               "total": 0.00,
+              "tipo_movimiento": "(GASTO|INGRESO|TRANSFERENCIA)",
+              "categoria_sugerida": "Elige la categoría más lógica del contexto",
+              "cuenta_origen_sugerida": "Nombre EXACTO de la cuenta o string vacío",
+              "cuenta_destino_sugerida": "Nombre EXACTO de la cuenta o 'N/A'",
               "confianza_extraccion": "(ALTA|MEDIA|BAJA)"
-            }
+            }}
             
-            ### REGLAS DE EXTRACCIÓN:
-            1.  **fecha**: Busca la fecha de la transacción de manera exhaustiva en todo el recibo. Conviértela SIEMPRE al formato ISO estricto YYYY-MM-DD, sin importar cómo venga escrita. NO la confundas con fechas de vencimiento o de impresión secundarias.
-            2.  **establecimiento**: El nombre principal de la tienda (ej. "Walmart", "Starbucks", "CFE").
-                - **REGLA CRÍTICA PARA TICKETS DE TERMINAL BANCARIA (VOUCHERS)**: Es RECURRENTE y GRAVE el error de extraer el banco de la terminal de pago como si fuera la tienda (ej. ignorar "BBVA", "BANAMEX", "SANTANDER", "BANORTE", "MERCADO PAGO", "CLIP", "POINT", "NETPAY", "STRIPE", "GETNET", "PROSA", "EVO PAYMENTS"). ÉSTOS NO SON ESTABLECIMIENTOS COMERCIALES. El nombre real del comercio TÍPICAMENTE ESTÁ EN LA PARTE MÁS ALTA DEL COMPROBANTE en letras grandes. IGNORA EL NOMBRE DEL BANCO/TERMINAL.
-                - Si es una transferencia, el nombre del beneficiario.
-            3.  **descripcion_corta**: Si es un ticket con muchos artículos, pon "Supermercado" o "Compra tienda". Si es una transferencia, usa el concepto.
-            4.  **total**: El monto TOTAL final. Debe ser un número (float), sin el símbolo de moneda. No lo confundas con propina o subtotal.
-            5.  **confianza_extraccion**: Evalúa tu propia certeza.
-                - **ALTA**: Si la imagen es clara y todos los campos son obvios.
-                - **MEDIA**: Si la imagen es un poco borrosa o un campo es ambiguo.
-                - **BAJA**: Si la imagen es muy difícil de leer o faltan datos clave.
-
-            ### EJEMPLOS:
-            - **Ejemplo 1 (Ticket claro):**
-              { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-07-03", "establecimiento": "LA COMER", "descripcion_corta": "Supermercado", "total": 854.50, "confianza_extraccion": "ALTA" }
-            - **Ejemplo 2 (Transferencia):**
-              { "tipo_documento": "TRANSFERENCIA", "fecha": "2025-07-01", "establecimiento": "N/A", "descripcion_corta": "Digitt002", "total": 7500.00, "confianza_extraccion": "ALTA" }
-            - **Ejemplo 3 (Ticket de terminal BBVA - El comercio es 'Restaurante El Sol'):**
-              { "tipo_documento": "TICKET_COMPRA", "fecha": "2025-06-28", "establecimiento": "RESTAURANTE EL SOL", "descripcion_corta": "Comida", "total": 450.00, "confianza_extraccion": "ALTA" }
-
-            ### Nota importante:
-            - Quiero que revices bien si es ticket o transferencia, ya que la extracción de datos es diferente. y lo has estado haciendo mal.
-            Por ejemplo, en las transferencias estas poniendo el nombre del usuario con el nombre del banco, y no es correcto.
-            Lo correcto seria que pongas el concepto de la transferencia, que es lo que el usuario pone en la app de su banco. Y eso normalmente lo pone tal cual en la transferencia.
-            - En caso de que el Establecimiento sea Express, sustituyelo por DIDI e igual en caso de que sea Tickets ponlos en mayusculas.
-            - NUNCA pongas un nombre de banco o procesador de pagos como establecimiento comercial.
+            ### REGLAS DE EXTRACCIÓN Y CLASIFICACIÓN:
+            1.  **fecha**: Busca la fecha de la transacción exhaustivamente. Conviértela SIEMPRE al formato ISO estricto YYYY-MM-DD.
+            2.  **establecimiento**: El nombre principal de la tienda (ej. "Walmart", "Starbucks", "CFE"). NUNCA pongas el nombre del banco de la terminal (ignora BBVA, BANAMEX, CLIP, POINT, etc.). Si es Express, sustitúyelo por DIDI.
+            3.  **total**: El monto TOTAL final. Número (float), sin símbolo de moneda.
+            4.  **tipo_movimiento**: Si es un TICKET_COMPRA, casi siempre es GASTO. Si es TRANSFERENCIA, determina por el concepto si es un pago (GASTO) o un abono a favor (INGRESO).
+            5.  **categoria_sugerida**: OBLIGATORIO elegir una de la lista de 'Categorías conocidas del usuario' del CONTEXTO. (Ej. Si es CFE, usa la que más se parezca a Servicios).
+            6.  **cuenta_origen_sugerida**: REGLA CRÍTICA. Revisa el recibo buscando terminaciones de tarjeta (ej. "VISA 1234", "MASTERCARD ****5678", "AUT: 1234"). Compara esa terminación de 4 dígitos con la lista de 'Cuentas disponibles del usuario' en el CONTEXTO. Si los números coinciden, devuelve EXACTAMENTE el nombre de esa cuenta (ej. "Tarjeta Nu"). Si el recibo indica pago en "Efectivo", busca su cuenta de efectivo. Si no hay coincidencia clara, devuelve "".
+            7.  **cuenta_destino_sugerida**: Infiere del contexto si es transferencia a cuentas propias. Si es un gasto normal en tienda, devuelve "N/A".
+            8.  **confianza_extraccion**: ALTA, MEDIA o BAJA según la claridad.
+            9.  **descripcion_corta**: Extrae ÚNICAMENTE el concepto central de la operación. OMITE ESTRICTAMENTE palabras redundantes al inicio como "Transferencia", "Traspaso", "SPEI" o "Pago de". Por ejemplo: Si el recibo dice "Transferencia renta", debes devolver "Renta".
 
             Ahora, analiza la siguiente imagen:
         """,
@@ -481,13 +468,18 @@ class TransactionService:
             # Por defecto, usamos la descripción corta
             descripcion_final = datos.get("descripcion_corta", "Sin descripción")
             
+            # 👇 NUEVO: Filtro de limpieza para Transferencias 👇
+            if tipo_documento == 'TRANSFERENCIA':
+                # Elimina la palabra "Transferencia", "Transferencia de" o "Transferencia por" al inicio
+                import re # Asegúrate de que import re esté al principio de tu archivo si no lo tienes
+                descripcion_final = re.sub(r'(?i)^transferencias?\s*(de|por)?\s*', '', descripcion_final).strip()
+            # 👆 FIN DEL NUEVO FILTRO 👆
+            
             # Si es un ticket de compra, sobrescribimos con el nombre del establecimiento
             if tipo_documento == 'TICKET_COMPRA':
                 descripcion_final = datos.get("establecimiento", "Compra sin establecimiento")
             
-            # --- FIN DE LA LÓGICA ---
             # Usamos nuestra función segura para procesar la fecha.
-            # Ya no hay riesgo de que el programa se rompa por un formato incorrecto.
             fecha_segura = parse_date_safely(datos.get("fecha") or datos.get("fecha_emision"))
 
             # Validamos el monto (puede venir como 'total' o 'total_pagado')
@@ -495,15 +487,15 @@ class TransactionService:
 
             registro_transacciones.objects.create(
                 propietario=user,
-                fecha=fecha_segura, # Usamos la fecha limpia y validada
-                #descripcion=datos.get("descripcion_corta", datos.get("establecimiento", "Sin descripción")),
-                descripcion=descripcion_final.upper(),
+                fecha=fecha_segura,
+                # 👇 CAMBIO APLICADO AQUÍ PARA USAR LA DESCRIPCIÓN LIMPIA 👇
+                descripcion=descripcion_final.upper(), 
                 categoria=categoria,
-                monto=Decimal(monto_str), # Convertir a string primero para mayor precisión con Decimal
+                monto=Decimal(monto_str),
                 tipo=tipo_transaccion,
                 cuenta_origen=cuenta,
                 cuenta_destino=cuenta_destino,
-                datos_extra=datos  # Guardamos TODOS los datos originales (RFC, Folio, etc.)
+                datos_extra=datos 
             )
             
             ticket.estado = 'aprobada'

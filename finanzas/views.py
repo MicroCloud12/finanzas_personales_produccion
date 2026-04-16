@@ -38,10 +38,71 @@ from .models import (
 )
 from django.http import JsonResponse
 from .models import TiendaFacturacion # Asegúrate de tener los modelos importados
-
+from .models import Cuenta
+from .forms import CuentaForm
 
 
 logger = logging.getLogger(__name__)
+
+
+@login_required
+def gestionar_cuentas(request):
+    cuentas = Cuenta.objects.filter(propietario=request.user)
+    
+    if request.method == 'POST':
+        form = CuentaForm(request.POST)
+        if form.is_valid():
+            cuenta = form.save(commit=False)
+            cuenta.propietario = request.user
+            cuenta.save()
+            
+            if cuenta.tipo == 'CREDITO':
+                Deuda.objects.get_or_create(
+                    propietario=request.user,
+                    nombre=cuenta.nombre,
+                    defaults={
+                        'tipo_deuda': 'TARJETA_CREDITO',
+                        'monto_total': Decimal('0.00'),
+                        'tasa_interes': Decimal('0.00'),
+                        'plazo_meses': 1,
+                        'requiere_configuracion_adicional': True
+                    }
+                )
+
+            messages.success(request, f"La cuenta '{cuenta.nombre}' se ha registrado exitosamente.")
+            return redirect('dashboard') # Una vez que guardan, los dejamos ir al dashboard
+    else:
+        form = CuentaForm()
+
+    context = {
+        'form': form,
+        'cuentas': cuentas,
+        # Si no tiene cuentas, le mostramos un mensaje diferente en el HTML
+        'es_onboarding': not cuentas.exists() 
+    }
+    return render(request, 'gestionar_cuentas.html', context)
+
+@login_required
+def editar_cuenta(request, cuenta_id):
+    cuenta = get_object_or_404(Cuenta, id=cuenta_id, propietario=request.user)
+    if request.method == 'POST':
+        form = CuentaForm(request.POST, instance=cuenta)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"La cuenta '{cuenta.nombre}' ha sido actualizada.")
+            return redirect('gestionar_cuentas')
+    else:
+        form = CuentaForm(instance=cuenta)
+    return render(request, 'editar_cuenta.html', {'form': form, 'cuenta': cuenta})
+
+@login_required
+@require_POST
+def eliminar_cuenta(request, cuenta_id):
+    cuenta = get_object_or_404(Cuenta, id=cuenta_id, propietario=request.user)
+    nombre = cuenta.nombre
+    cuenta.delete()
+    messages.success(request, f"La cuenta '{nombre}' ha sido eliminada correctamente.")
+    return redirect('gestionar_cuentas')
 
 def enviar_pregunta(request):
     if request.method == "POST":
@@ -231,7 +292,13 @@ def eliminar_transaccion(request, transaccion_id):
 @login_required
 def revisar_tickets(request):
     tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-    return render(request, 'revisar_tickets.html', {'tickets': tickets_pendientes})
+    # --- NUEVO: Obtenemos las cuentas del usuario ---
+    cuentas_usuario = Cuenta.objects.filter(propietario=request.user)
+    
+    return render(request, 'revisar_tickets.html', {
+        'tickets': tickets_pendientes,
+        'cuentas_usuario': cuentas_usuario # Pasamos las cuentas a la plantilla
+    })
 
 @login_required
 def rechazar_ticket(request, ticket_id):
@@ -263,6 +330,14 @@ y ganancias mensuales, e inversiones.
 '''
 @login_required
 def vista_dashboard(request):
+    # --- ONBOARDING OBLIGATORIO ---
+    # Si el usuario no tiene ninguna cuenta registrada, lo forzamos a crear una
+    from .models import Cuenta
+    if not Cuenta.objects.filter(propietario=request.user).exists():
+        messages.info(request, "¡Bienvenido! Para poder analizar tus tickets y automatizar tus gastos, primero necesitamos que registres al menos una cuenta o tarjeta.")
+        return redirect('gestionar_cuentas')
+    # ------------------------------
+
     # Definimos fechas al inicio para usarlas en todo el dashboard
     current_year = datetime.now().year
     current_month = datetime.now().month
@@ -270,9 +345,9 @@ def vista_dashboard(request):
     month = int(request.GET.get('month', current_month))
 
     suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    
     # --- LÓGICA PARA LA GRÁFICA DE AHORRO (SAVINGS GROWTH) ---
     # Calculamos el ahorro acumulado mes a mes para el año seleccionado
-    # Usamos 'year' obtenido de los params GET (o año actual por defecto)
     savings_qs = registro_transacciones.objects.filter(
         propietario=request.user,
         fecha__year=year
@@ -281,7 +356,7 @@ def vista_dashboard(request):
         (Q(categoria__iexact='Ahorro') & ~Q(tipo__iexact='GASTO')) |
         # 2. Transferencias directas a la Cuenta Ahorro
         Q(tipo__iexact='TRANSFERENCIA', cuenta_destino__iexact='Cuenta Ahorro') | 
-        # 3. Ingresos que entraron directo a Cuenta Ahorro (En Ingresos, 'cuenta_origen' suele ser destino/cuenta)
+        # 3. Ingresos que entraron directo a Cuenta Ahorro 
         Q(tipo__iexact='INGRESO', cuenta_origen__iexact='Cuenta Ahorro')
     ).annotate(mes=TruncMonth('fecha')).values('mes').annotate(total=Sum('monto')).order_by('mes')
 
@@ -292,15 +367,12 @@ def vista_dashboard(request):
     # Mapa de ahorro por mes
     ahorro_por_mes = {s['mes'].strftime('%Y-%m'): s['total'] for s in savings_qs}
     
-    # Generamos los meses hasta el actual
     # Generamos los meses para todo el año
-    # Se muestra todo el año para ver la proyección (Growth Plan)
     for m in range(1, 13):
-        # Usamos 'year' (el año seleccionado) en lugar de current_date.year
         try:
             mes_fecha = datetime(year, m, 1)
         except ValueError:
-             # Caso borde: si el usuario selecciona un año bisiesto o similar y hay error (raro en día 1)
+             # Caso borde
             continue
             
         mes_key = mes_fecha.strftime('%Y-%m')
@@ -314,20 +386,14 @@ def vista_dashboard(request):
     chart_labels = savings_labels
     chart_data = savings_data
     # ----------------------------------------------
+    
     # Verificamos si la suscripción está activa con nuestro método del modelo.
     es_usuario_premium = suscripcion.is_active()
-    transacciones = registro_transacciones.objects.filter(
-        propietario=request.user, 
-        fecha__year=year, 
-        fecha__month=month
-    )
 
-     # --- LA MAGIA DE LA OPTIMIZACIÓN (VIA MANAGER) ---
-    # Delegamos toda la lógica compleja al Manager (SOLID: Single Responsibility)
-    # la view solo se encarga de recibir datos y pasarlos al template.
+    # --- LA MAGIA DE LA OPTIMIZACIÓN (VIA MANAGER) ---
     bal = registro_transacciones.objects.balance_dashboard(request.user, year, month)
     
-    # Igualmente, hacemos UNA SOLA CONSULTA para las inversiones
+    # Hacemos UNA SOLA CONSULTA para las inversiones
     agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
         total_inicial=Sum('costo_total_adquisicion'),
         total_actual=Sum('valor_actual_mercado')
@@ -348,13 +414,9 @@ def vista_dashboard(request):
     balance = ingresos - gastos - gastos_ahorro
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
     
-    # --- CORRECCIÓN: Usamos el acumulado del año (igual que la gráfica) ---
     ahorro = ahorro_acumulado
     
-    # --- NUEVO: Cálculo de Deuda Total ---
-    # --- NUEVO: Cálculo de Deuda Total ---
-    # Sumamos el saldo pendiente de todas las deudas activas del usuario,
-    # pero distinguimos entre Tarjetas de Crédito y Préstamos.
+    # --- Cálculo de Deuda Total ---
     todas_deudas = Deuda.objects.filter(propietario=request.user)
     deuda_total = Decimal('0.00')
     
@@ -362,19 +424,40 @@ def vista_dashboard(request):
         if d.tipo_deuda == 'TARJETA_CREDITO':
             # Para TC: Deuda Real = Límite (monto_total) - Disponible (saldo_pendiente)
             deuda_real = d.monto_total - d.saldo_pendiente
-            # Solo sumamos si es positivo (por si acaso el saldo pendiente es mayor al límite, aunque raro)
             if deuda_real > 0:
                 deuda_total += deuda_real
         else:
             # Para Préstamos: Deuda Real = Saldo Pendiente
             deuda_total += d.saldo_pendiente
+            
+    # --- Listado de Tarjetas para el Widget ---
+    las_cuentas = Cuenta.objects.filter(propietario=request.user, tipo='DEBITO')
+    tarjetas_list = []
+    for c in las_cuentas:
+        term = c.terminacion.strip() if c.terminacion else ""
+        if len(term) > 4:
+            term = term[-4:]
+        elif len(term) < 4 and len(term) > 0:
+            term = term.zfill(4)
+        else:
+            term = term or "****"
+            
+        tarjetas_list.append({
+            'id': c.id,
+            'nombre': c.nombre,
+            'terminacion': term,
+            'tipo': c.tipo
+        })
+        
+    import json
+    tarjetas_data_json = json.dumps(tarjetas_list)
 
     context = {
         'ingresos': ingresos,
         'gastos': gastos,
         'balance': balance,
-        'transferencias':transferencias,
-        'disponible_banco':disponible_banco,
+        'transferencias': transferencias,
+        'disponible_banco': disponible_banco,
         'ahorro': ahorro,
         'selected_year': year,
         'selected_month': month,
@@ -382,6 +465,8 @@ def vista_dashboard(request):
         'months': range(1, 13),
         'es_usuario_premium': es_usuario_premium,
         'deuda_total': deuda_total,
+        'tarjetas_data_json': tarjetas_data_json,
+        'tarjetas_list': tarjetas_list,
         'investment_chart_labels': chart_labels,
         'investment_chart_data': chart_data,
     }
@@ -919,10 +1004,32 @@ def detalle_deuda(request, deuda_id):
 
 @login_required
 def editar_deuda(request, deuda_id):
-    # Lógica para editar (la haremos después)
     deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
-    # ... (lógica del formulario de edición)
-    return redirect('lista_deudas')
+    
+    if request.method == 'POST':
+        monto_total_anterior = deuda.monto_total
+        estaba_pendiente_configuracion = deuda.requiere_configuracion_adicional
+        
+        form = DeudaForm(request.POST, instance=deuda)
+        if form.is_valid():
+            deuda = form.save(commit=False)
+            
+            # --- CORRECCIÓN SALDO PENDIENTE ---
+            # Ya sea la configuración inicial o un cambio de límite posterior,
+            # sumamos la diferencia del límite al saldo pendiente actual.
+            # Esto evita borrar gastos que se hayan hecho antes de configurar el límite.
+            diferencia_monto = (deuda.monto_total or 0) - (monto_total_anterior or 0)
+            if diferencia_monto != 0:
+                deuda.saldo_pendiente = (deuda.saldo_pendiente or 0) + diferencia_monto
+
+            deuda.requiere_configuracion_adicional = False # Ya se actualizó la configuración
+            deuda.save()
+            messages.success(request, f"La deuda '{deuda.nombre}' ha sido actualizada.")
+            return redirect('lista_deudas')
+    else:
+        form = DeudaForm(instance=deuda)
+        
+    return render(request, 'editar_deuda.html', {'form': form, 'deuda': deuda})
 
 @login_required
 def eliminar_deuda(request, deuda_id):
@@ -1452,5 +1559,120 @@ def confirmar_datos_factura(request):
 
         return JsonResponse({'status': 'success', 'message': 'Factura guardada y lista para procesar.'})
 
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@login_required
+def api_ingresos_tarjeta(request):
+    """
+    Endpoint AJAX para obtener las estadísticas de ingresos filtradas
+    por una tarjeta (cuenta) en concreto, mes y año.
+    """
+    try:
+        cuenta_nombre = request.GET.get('cuenta_nombre', '')
+        year = request.GET.get('year', '')
+        month = request.GET.get('month', '')
+        
+        if not cuenta_nombre or not year or not month:
+            return JsonResponse({'status': 'error', 'message': 'Parámetros incompletos'}, status=400)
+            
+        year = int(year)
+        month = int(month)
+        
+        # Calcular el mes anterior para la comparación
+        if month == 1:
+            prev_month = 12
+            prev_year = year - 1
+        else:
+            prev_month = month - 1
+            prev_year = year
+            
+        from django.db.models import Sum, Count
+        
+        qs_base_actual = registro_transacciones.objects.filter(
+            propietario=request.user,
+            fecha__year=year,
+            fecha__month=month,
+            cuenta_origen=cuenta_nombre
+        )
+        
+        qs_base_previo = registro_transacciones.objects.filter(
+            propietario=request.user,
+            fecha__year=prev_year,
+            fecha__month=prev_month,
+            cuenta_origen=cuenta_nombre
+        )
+        
+        def procesar_tipo(tipo_tx):
+            qs_act = qs_base_actual.filter(tipo__iexact=tipo_tx)
+            qs_prev = qs_base_previo.filter(tipo__iexact=tipo_tx)
+            
+            agregados_act = qs_act.aggregate(
+                total=Sum('monto'),
+                num_categorias=Count('categoria', distinct=True)
+            )
+            total_act = agregados_act['total'] or Decimal('0.00')
+            tx_act = qs_act.count()
+            cat_act = agregados_act['num_categorias'] or 0
+            
+            total_prv = qs_prev.aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+            
+            dif = total_act - total_prv
+            if total_prv > 0:
+                pct = (dif / total_prv) * Decimal('100.0')
+            else:
+                pct = Decimal('100.0') if total_act > 0 else Decimal('0.0')
+                
+            return {
+                'total': f"{total_act:,.2f}",
+                'transactions': tx_act,
+                'categories': cat_act,
+                'diferencia_monto': f"{abs(dif):,.2f}",
+                'porcentaje': round(float(abs(pct)), 1),
+                'es_positivo': bool(dif >= 0),
+            }
+
+        ingresos_data = procesar_tipo('INGRESO')
+        gastos_data = procesar_tipo('GASTO')
+        
+        # Calcular Balance Total (Ingresos - Gastos)
+        val_ingreso_act = float(ingresos_data['total'].replace(',', ''))
+        val_gasto_act = float(gastos_data['total'].replace(',', ''))
+        balance_act = val_ingreso_act - val_gasto_act
+        
+        # Balance Total mes anterior para porcentaje  
+        # (Des-formateamos los calculados de la funcion o los recalculamos)
+        val_ingreso_prev = qs_base_previo.filter(tipo__iexact='INGRESO').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+        val_gasto_prev = qs_base_previo.filter(tipo__iexact='GASTO').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+        balance_prev = float(val_ingreso_prev) - float(val_gasto_prev)
+        
+        dif_balance = balance_act - balance_prev
+        if balance_prev > 0:
+            pct_balance = (dif_balance / balance_prev) * 100.0
+        else:
+            pct_balance = 100.0 if balance_act > 0 else 0.0
+            
+        transacciones_balance = ingresos_data['transactions'] + gastos_data['transactions']
+        
+        # Categorias unicas entre ingresos y gastos para esa cuenta
+        cat_balance_qs = qs_base_actual.filter(tipo__in=['INGRESO', 'GASTO', 'Ingreso', 'Gasto']).aggregate(num=Count('categoria', distinct=True))
+        cat_balance = cat_balance_qs['num'] or 0
+
+        balance_data = {
+            'total': f"{balance_act:,.2f}",
+            'transactions': transacciones_balance,
+            'categories': cat_balance,
+            'diferencia_monto': f"{abs(dif_balance):,.2f}",
+            'porcentaje': round(float(abs(pct_balance)), 1),
+            'es_positivo': bool(dif_balance >= 0),
+        }
+
+        return JsonResponse({
+            'status': 'success',
+            'ingresos': ingresos_data,
+            'gastos': gastos_data,
+            'balance': balance_data
+        })
+        
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

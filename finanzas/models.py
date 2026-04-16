@@ -43,9 +43,66 @@ class registro_transacciones(models.Model):
     def __str__(self):
         return f"{self.id} - {self.descripcion}"
 
+    def delete(self, *args, **kwargs):
+        # 1. Revertimos el saldo si afectó a la cuenta de tarjeta de crédito (por su nombre)
+        if self.tipo == 'GASTO':
+            try:
+                deuda_tarjeta = Deuda.objects.get(
+                    propietario=self.propietario,
+                    nombre=self.cuenta_origen,
+                    tipo_deuda='TARJETA_CREDITO'
+                )
+                if not (self.deuda_asociada == deuda_tarjeta and self.tipo_pago == 'TARJETA_CREDITO'):
+                    deuda_tarjeta.saldo_pendiente = (deuda_tarjeta.saldo_pendiente or 0) + self.monto
+                    deuda_tarjeta.save()
+            except Deuda.DoesNotExist:
+                pass
+
+        # 2. Revertimos el saldo si la transacción estaba explícitamente asociada a una deuda
+        if self.deuda_asociada:
+            deuda = self.deuda_asociada
+            if self.tipo_pago == 'TARJETA_CREDITO':
+                deuda.saldo_pendiente = (deuda.saldo_pendiente or 0) + self.monto
+                deuda.save()
+            elif self.tipo_pago == 'CAPITAL':
+                deuda.saldo_pendiente = (deuda.saldo_pendiente or 0) + self.monto
+                deuda.save()
+            elif deuda.tipo_deuda == 'TARJETA_CREDITO':
+                deuda.saldo_pendiente = (deuda.saldo_pendiente or 0) + self.monto
+                deuda.save()
+            elif deuda.tipo_deuda == 'PRESTAMO' and self.tipo_pago == 'MENSUALIDAD':
+                cuota_pagada = PagoAmortizacion.objects.filter(transaccion_pago=self).first()
+                if cuota_pagada:
+                    cuota_pagada.pagado = False
+                    cuota_pagada.transaccion_pago = None
+                    cuota_pagada.save()
+                    # Revertimos restando usando la función F importada
+                    # O simplemente sumando el capital
+                    deuda.saldo_pendiente = F('saldo_pendiente') + cuota_pagada.capital
+                    deuda.save()
+        
+        super().delete(*args, **kwargs)
+
     # Tu método save que modificamos anteriormente va aquí...
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+
+        # Si la transacción es un GASTO nuevo y su cuenta origen es una tarjeta de crédito en Deudas
+        if is_new and self.tipo == 'GASTO':
+            try:
+                # Buscamos la Deuda tipo Tarjeta de Crédito con el mismo nombre que la cuenta origen
+                deuda_tarjeta = Deuda.objects.get(
+                    propietario=self.propietario,
+                    nombre=self.cuenta_origen,
+                    tipo_deuda='TARJETA_CREDITO'
+                )
+                # Evitamos restar 2 veces si ya estuviera manejado por deuda_asociada (precaución)
+                if not (self.deuda_asociada == deuda_tarjeta and self.tipo_pago == 'TARJETA_CREDITO'):
+                    deuda_tarjeta.saldo_pendiente -= self.monto
+                    deuda_tarjeta.save()
+            except Deuda.DoesNotExist:
+                pass
 
         if self.deuda_asociada:
             deuda = self.deuda_asociada
@@ -272,6 +329,19 @@ class Deuda(models.Model):
         blank=True,
         help_text="El monto que se debe actualmente. Se actualiza con cada pago."
     )
+    requiere_configuracion_adicional = models.BooleanField(
+        default=False,
+        help_text="Indica si la deuda se generó automáticamente y necesita que se configuren sus detalles (monto, tasa, etc.)"
+    )
+
+    dia_corte = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Día del mes en que corta la tarjeta (1-31). Ej: 6"
+    )
+    dia_pago = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Día límite de pago del mes (1-31). Ej: 30"
+    )
 
     # --- PASO 2: Añadimos la clase Meta con la nueva regla ---
     class Meta:
@@ -284,6 +354,54 @@ class Deuda(models.Model):
         if not self.pk:
             self.saldo_pendiente = self.monto_total
         super().save(*args, **kwargs)
+
+    @property
+    def total_gastado(self):
+        return (self.monto_total or 0) - (self.saldo_pendiente or 0)
+
+    @property
+    def proxima_fecha_corte(self):
+        if not self.dia_corte:
+            return None
+        import calendar
+        from datetime import timedelta
+        hoy = timezone.now().date()
+        try:
+            fecha_este_mes = hoy.replace(day=self.dia_corte)
+        except ValueError:
+            _, last_day = calendar.monthrange(hoy.year, hoy.month)
+            fecha_este_mes = hoy.replace(day=last_day)
+            
+        if fecha_este_mes < hoy:
+            mes_siguiente = (fecha_este_mes.replace(day=1) + timedelta(days=32)).replace(day=1)
+            try:
+                return mes_siguiente.replace(day=self.dia_corte)
+            except ValueError:
+                _, last_day = calendar.monthrange(mes_siguiente.year, mes_siguiente.month)
+                return mes_siguiente.replace(day=last_day)
+        return fecha_este_mes
+
+    @property
+    def proxima_fecha_pago(self):
+        if not self.dia_pago:
+            return None
+        import calendar
+        from datetime import timedelta
+        hoy = timezone.now().date()
+        try:
+            fecha_este_mes = hoy.replace(day=self.dia_pago)
+        except ValueError:
+            _, last_day = calendar.monthrange(hoy.year, hoy.month)
+            fecha_este_mes = hoy.replace(day=last_day)
+            
+        if fecha_este_mes < hoy:
+            mes_siguiente = (fecha_este_mes.replace(day=1) + timedelta(days=32)).replace(day=1)
+            try:
+                return mes_siguiente.replace(day=self.dia_pago)
+            except ValueError:
+                _, last_day = calendar.monthrange(mes_siguiente.year, mes_siguiente.month)
+                return mes_siguiente.replace(day=last_day)
+        return fecha_este_mes
 
 class PagoAmortizacion(models.Model):
     deuda = models.ForeignKey(Deuda, on_delete=models.CASCADE, related_name='amortizacion')
@@ -365,7 +483,6 @@ class TiendaFacturacion(models.Model):
     def __str__(self):
         return f"Configuración para {self.tienda}"
 
-
 class Factura(models.Model):
     """
     TABLA 2: RESULTADOS (La Memoria)
@@ -446,3 +563,24 @@ class PortfolioHistory(models.Model):
 
     def __str__(self):
         return f"{self.usuario.username} - {self.fecha}: ${self.valor_total}"
+
+class Cuenta(models.Model):
+    TIPO_CUENTA = (
+        ('EFECTIVO', 'Efectivo'),
+        ('DEBITO', 'Tarjeta de Débito'),
+        ('CREDITO', 'Tarjeta de Crédito'),
+        ('INVERSION', 'Cuenta de Inversión'),
+    )
+    
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    nombre = models.CharField(max_length=50, help_text="Ej. Tarjeta Banamex, Efectivo Quincena, NuBank")
+    terminacion = models.CharField(max_length=4, blank=True, null=True, help_text="Últimos 4 dígitos de la tarjeta (opcional)")
+    tipo = models.CharField(max_length=15, choices=TIPO_CUENTA, default='DEBITO')
+    
+    class Meta:
+        unique_together = ['propietario', 'nombre']
+
+    def __str__(self):
+        if self.terminacion:
+            return f"{self.nombre} (**{self.terminacion})"
+        return self.nombre

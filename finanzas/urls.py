@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/datos-gastos-categoria/', views.datos_gastos_categoria, name='api_datos_gastos'),
     path('api/datos-flujo-dinero/', views.datos_flujo_dinero, name='api_flujo_dinero'),
     path('api/datos-inversiones/', views.datos_inversiones, name='api_datos_inversiones'),
+    path('api/dashboard/ingresos-tarjeta/', views.api_ingresos_tarjeta, name='api_ingresos_tarjeta'),
     path('procesamiento-automatico/', views.vista_procesamiento_automatico, name='procesamiento_automatico'),
     path('procesar-drive/', views.iniciar_procesamiento_drive, name='procesar_drive'),
     path('revisar-tickets/', views.revisar_tickets, name='revisar_tickets'),
@@ -88,4 +89,7 @@ urlpatterns = [
     path('api/confirmar-factura/', views.confirmar_datos_factura, name='confirmar_factura'),
     path('api/agregar-campo-tienda/', views.agregar_campo_tienda, name='agregar_campo_tienda'),
     path('api/eliminar-campo-tienda/', views.eliminar_campo_tienda, name='eliminar_campo_tienda'),
+    path('cuentas/', views.gestionar_cuentas, name='gestionar_cuentas'),
+    path('cuentas/editar/<int:cuenta_id>/', views.editar_cuenta, name='editar_cuenta'),
+    path('cuentas/eliminar/<int:cuenta_id>/', views.eliminar_cuenta, name='eliminar_cuenta'),
 ]
