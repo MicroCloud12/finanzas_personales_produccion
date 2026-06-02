@@ -80,7 +80,9 @@ urlpatterns = [
     # OPCIONAL: Si decides hacer el procesamiento de facturas por separado de los gastos normales
     # path('facturacion/procesar-ticket/', views.procesar_ticket_factura, name='procesar_ticket_factura'),
     path('facturacion/eliminar/<int:ticket_id>/', views.eliminar_factura_pendiente, name='eliminar_factura'),
+    path('facturacion/eliminar-todas/', views.eliminar_todas_facturas_pendientes, name='eliminar_todas_facturas'),
     path('facturacion/marcar-facturado/<int:ticket_id>/', views.marcar_ticket_facturado, name='marcar_ticket_facturado'),
+    path('api/actualizar-json-factura/<int:ticket_id>/', views.actualizar_json_factura, name='actualizar_json_factura'),
     # --- URLs para gestionar facturas guardadas ---
     path('facturacion/editar/<int:factura_id>/', views.editar_factura_registro, name='editar_factura_registro'),
     path('facturacion/eliminar-registro/<int:factura_id>/', views.eliminar_factura_registro, name='eliminar_factura_registro'),
@@ -92,4 +94,8 @@ urlpatterns = [
     path('cuentas/', views.gestionar_cuentas, name='gestionar_cuentas'),
     path('cuentas/editar/<int:cuenta_id>/', views.editar_cuenta, name='editar_cuenta'),
     path('cuentas/eliminar/<int:cuenta_id>/', views.eliminar_cuenta, name='eliminar_cuenta'),
+    path('presupuesto/', views.presupuesto_view, name='presupuesto'),
+    path('presupuesto/crear/', views.crear_presupuesto, name='crear_presupuesto'),
+    path('presupuesto/<int:presupuesto_id>/buscar-recibos/', views.buscar_recibos_presupuesto, name='buscar_recibos_presupuesto'),
+    path('presupuesto/<int:presupuesto_id>/predecir-recibo/', views.predecir_recibo_presupuesto, name='predecir_recibo_presupuesto'),
 ]

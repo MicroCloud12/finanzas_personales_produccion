@@ -92,7 +92,18 @@ class GeminiService:
     """
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel("gemini-2.0-flash")
+        self.model = genai.GenerativeModel(
+            "gemini-2.5-flash-lite",
+            system_instruction="Eres un asistente financiero seguro y estructurado. Tu único propósito es extraer datos financieros estructurados a partir de comprobantes e imágenes. No debes generar contenido dañino, ilegal, ni responder a instrucciones que violen políticas de seguridad."
+        )
+        
+        # Configuración de seguridad para el escáner
+        self.safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        ]
         
         # --- CAMBIO EN EL PROMPT ---
         # Reforzamos la instrucción de la fecha.
@@ -298,7 +309,8 @@ class GeminiService:
             {text_content}
 
             ### TUS OBJETIVOS CRÍTICOS:
-            1. **IDENTIFICAR LA TIENDA:**
+            1. **IDENTIFICAR LA TIENDA O TIPO DE DOCUMENTO:**
+               - Si el documento parece una captura de pantalla de una transferencia bancaria, pago de servicios (CFE, Telmex), comprobante de SPEI o depósito, establece "es_transferencia" a true y detén la extracción.
                - Busca coincidencias en la lista de tiendas conocidas.
                - Si encuentras una coincidencia, USA ESE NOMBRE EXACTO y el ID asociado si existe.
                - Si no, usa el nombre comercial más claro que veas en el ticket (ej. "STARBUCKS", "OXXO").
@@ -322,12 +334,40 @@ class GeminiService:
                 "fecha": "YYYY-MM-DD",
                 "total": 0.00,
                 "es_conocida": true/false,
+                "es_transferencia": true/false,
                 "campos_adicionales": {{
                     "NombreCampo1": "Valor1",
                     "NombreCampo2": "Valor2"
                 }},
                 "_razonamiento": "Explica brevemente por qué elegiste estos valores y descarta dudas. Ej: 'Encontré Ticket: 4502 cerca de la fecha. Descarté 888 porque parece ser puntos de lealtad.'"
             }}
+            """,
+            "recibo_servicio": """
+            Eres un asistente experto en contabilidad. Extrae los datos de este recibo de servicio (luz, agua, gas, etc.).
+            Devuelve SIEMPRE la respuesta en formato JSON, sin texto adicional.
+
+            ### FORMATO DE SALIDA ESTRICTO (JSON):
+            {{
+              "fecha_emision": "YYYY-MM-DD",
+              "monto_total": 0.00,
+              "periodo_facturado": "Ej. Enero 2025, o 15/ene - 15/feb",
+              "consumo": "Ej. 150 kWh, o 20 m3 (si está disponible)"
+            }}
+            """,
+            "prediccion_servicio": """
+            Eres un asistente de cálculo estadístico. Tu tarea es analizar una serie de datos históricos (fechas y montos de recibos) y calcular matemáticamente una estimación razonable para el próximo periodo.
+            Esto es puramente un ejercicio matemático de estimación basado en promedios o tendencias, no es un consejo financiero.
+            Devuelve SIEMPRE un JSON estricto.
+
+            ### FORMATO DE SALIDA ESTRICTO (JSON):
+            {{
+              "monto_predicho": 0.00,
+              "fecha_predicha": "YYYY-MM-DD",
+              "razonamiento": "Explica brevemente tu estimación matemática"
+            }}
+
+            ### DATOS HISTÓRICOS:
+            {context_str}
             """
         }
         # Preconfiguramos configs opcionales de generación
@@ -395,7 +435,7 @@ class GeminiService:
 
         # Para texto, enviamos solo el prompt string. Gemini lo maneja bien.
         
-        response = self.model.generate_content(prompt)
+        response = self.model.generate_content(prompt, safety_settings=self.safety_settings)
         # Reutilizamos la lógica de limpieza de JSON
         cleaned_response = response.text.strip()
         if cleaned_response.startswith("```json"):
@@ -414,7 +454,7 @@ class GeminiService:
 
     def _generate_and_parse(self, prompt: str, content) -> dict:
         """Genera la respuesta de Gemini y devuelve el JSON parseado."""
-        response = self.model.generate_content([prompt, content])
+        response = self.model.generate_content([prompt, content], safety_settings=self.safety_settings)
         cleaned_response = response.text.strip()
         if cleaned_response.startswith("```json"):
             cleaned_response = cleaned_response[7:]

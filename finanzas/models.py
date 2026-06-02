@@ -17,9 +17,11 @@ class registro_transacciones(models.Model):
         ('INGRESO', 'Ingreso'),
         ('GASTO', 'Gasto'),
         ('TRANSFERENCIA','Transferencia'),
+        ('PAGO_MENSUALIDAD', 'Pago de Mensualidad'),
+        ('PAGO_CAPITAL', 'Pago a Capital'),
     ]
     # Index para filtrar ingresos vs gastos rápidamente
-    tipo = models.CharField(max_length=15, choices=TIPO_CHOICES, db_index=True)
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, db_index=True)
     cuenta_origen = models.CharField(max_length=100)
     cuenta_destino = models.CharField(max_length=100)
     deuda_asociada = models.ForeignKey('Deuda', on_delete=models.SET_NULL, null=True, blank=True, related_name='pagos')
@@ -86,6 +88,18 @@ class registro_transacciones(models.Model):
     # Tu método save que modificamos anteriormente va aquí...
     def save(self, *args, **kwargs):
         is_new = self.pk is None
+        
+        # Mapeo de los nuevos tipos de pago a la lógica interna (deuda_asociada y tipo_pago)
+        if self.tipo in ['PAGO_MENSUALIDAD', 'PAGO_CAPITAL'] and self.cuenta_destino:
+            try:
+                self.deuda_asociada = Deuda.objects.get(
+                    propietario=self.propietario,
+                    nombre=self.cuenta_destino
+                )
+                self.tipo_pago = 'MENSUALIDAD' if self.tipo == 'PAGO_MENSUALIDAD' else 'CAPITAL'
+            except Deuda.DoesNotExist:
+                pass
+                
         super().save(*args, **kwargs)
 
         # Si la transacción es un GASTO nuevo y su cuenta origen es una tarjeta de crédito en Deudas
@@ -576,6 +590,7 @@ class Cuenta(models.Model):
     nombre = models.CharField(max_length=50, help_text="Ej. Tarjeta Banamex, Efectivo Quincena, NuBank")
     terminacion = models.CharField(max_length=4, blank=True, null=True, help_text="Últimos 4 dígitos de la tarjeta (opcional)")
     tipo = models.CharField(max_length=15, choices=TIPO_CUENTA, default='DEBITO')
+    es_principal = models.BooleanField(default=False, help_text="Marcar como tarjeta principal o preferida")
     
     class Meta:
         unique_together = ['propietario', 'nombre']
@@ -584,3 +599,41 @@ class Cuenta(models.Model):
         if self.terminacion:
             return f"{self.nombre} (**{self.terminacion})"
         return self.nombre
+
+    def save(self, *args, **kwargs):
+        if self.es_principal:
+            # Desmarcar otras cuentas del mismo propietario como principal
+            Cuenta.objects.filter(propietario=self.propietario).exclude(pk=self.pk).update(es_principal=False)
+        super().save(*args, **kwargs)
+
+class Presupuesto(models.Model):
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE, related_name='presupuestos')
+    categoria = models.CharField(max_length=100, help_text="Ej. Vivienda, Alimentación, Transporte")
+    monto_presupuestado = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    
+    es_recurrente = models.BooleanField(default=True, help_text="Si es verdadero, aplica para todos los meses")
+    mes = models.IntegerField(null=True, blank=True, help_text="Mes específico (1-12) si no es recurrente")
+    anio = models.IntegerField(null=True, blank=True, help_text="Año específico si no es recurrente")
+    fecha_proximo_recibo = models.DateField(null=True, blank=True, help_text="Fecha estimada del próximo recibo (generada por IA)")
+    
+    class Meta:
+        verbose_name = "Presupuesto"
+        verbose_name_plural = "Presupuestos"
+        unique_together = ['propietario', 'categoria', 'mes', 'anio']
+
+    def __str__(self):
+        if self.es_recurrente:
+            return f"{self.categoria} - ${self.monto_presupuestado} (Recurrente)"
+        return f"{self.categoria} - ${self.monto_presupuestado} ({self.mes}/{self.anio})"
+
+class HistorialReciboServicio(models.Model):
+    propietario = models.ForeignKey(User, on_delete=models.CASCADE)
+    presupuesto = models.ForeignKey(Presupuesto, on_delete=models.CASCADE, related_name='historial_recibos')
+    fecha_emision = models.DateField(null=True, blank=True)
+    monto_total = models.DecimalField(max_digits=12, decimal_places=2)
+    datos_json = models.JSONField(default=dict)
+    archivo_drive_id = models.CharField(max_length=255, unique=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Recibo de {self.presupuesto.categoria} - {self.fecha_emision} - ${self.monto_total}"

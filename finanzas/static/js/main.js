@@ -1,30 +1,17 @@
-// Función para automatizar el Tipo según la Categoría seleccionada
-function actualizarTipo(selectElement, ticketId) {
-    const categoriaSeleccionada = selectElement.value;
-    const selectTipo = document.querySelector(`select[name="tipo_${ticketId}"]`);
-
-    if (selectTipo) {
-        if (categoriaSeleccionada === 'Nomina') {
-            selectTipo.value = 'INGRESO';
-        }
-        else if (categoriaSeleccionada === 'Ahorro') {
-            selectTipo.value = 'TRANSFERENCIA';
-        }
-        else {
-            selectTipo.value = 'GASTO';
-        }
-    }
-}
-
 function fadeFlashMessage() {
-    const messageWrapper = document.querySelector('.fixed.top-5.right-5');
-    if (messageWrapper) {
+    const toasts = document.querySelectorAll('.toast-message');
+    toasts.forEach((toast, index) => {
+        // Mostrar los toasts escalonadamente
         setTimeout(() => {
-            messageWrapper.style.transition = 'opacity 0.5s ease';
-            messageWrapper.style.opacity = '0';
-            setTimeout(() => messageWrapper.remove(), 500);
+            toast.classList.remove('translate-x-full', 'opacity-0');
+        }, 100 * (index + 1));
+
+        // Ocultarlos automáticamente después de 5 segundos
+        setTimeout(() => {
+            toast.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => toast.remove(), 300); // Dar tiempo a la animación para terminar
         }, 5000);
-    }
+    });
 }
 
 function setupProfileMenu() {
@@ -32,18 +19,18 @@ function setupProfileMenu() {
     const dropdownMenu = document.getElementById('profile-menu');
 
     if (menuButton && dropdownMenu) {
-        menuButton.addEventListener('click', function (event) {
+        menuButton.addEventListener('click', function(event) {
             event.stopPropagation();
             dropdownMenu.classList.toggle('hidden');
         });
 
-        window.addEventListener('click', function (event) {
+        window.addEventListener('click', function(event) {
             if (!dropdownMenu.classList.contains('hidden') && !menuButton.contains(event.target)) {
                 dropdownMenu.classList.add('hidden');
             }
         });
 
-        document.addEventListener('keydown', function (event) {
+        document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape' && !dropdownMenu.classList.contains('hidden')) {
                 dropdownMenu.classList.add('hidden');
             }
@@ -80,26 +67,9 @@ function setupMobileMenu() {
     }
 }
 
-function setupToasts() {
-    const toasts = document.querySelectorAll('.toast-message');
-    toasts.forEach((toast, index) => {
-        setTimeout(() => {
-            toast.classList.remove('translate-x-full', 'opacity-0');
-        }, 100 * index); // Stagger animation
-
-        setTimeout(() => {
-            toast.classList.add('opacity-0', 'translate-x-full');
-            setTimeout(() => {
-                toast.remove();
-            }, 300);
-        }, 5000 + (1000 * index)); // Auto dismiss
-    });
-}
-
 document.addEventListener('DOMContentLoaded', () => {
     fadeFlashMessage();
     setupProfileMenu();
     initScrollAnimations();
     setupMobileMenu();
-    setupToasts();
 });

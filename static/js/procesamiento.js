@@ -98,8 +98,8 @@ function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
         const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
+        for (const cookieStr of cookies) {
+            const cookie = cookieStr.trim();
             if (cookie.substring(0, name.length + 1) === (name + '=')) {
                 cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
                 break;
@@ -123,10 +123,15 @@ async function guardarConfiguracion(btn) {
     const inputs = container.querySelectorAll('input[type="checkbox"]:checked');
     const campos = Array.from(inputs).map(input => input.value);
 
-    // Removed prompt as requested
     const urlPortal = "";
 
-    if (!confirm(`¿Guardar configuración para ${tienda} con ${campos.length} campos?`)) return;
+    if (campos.length === 0) {
+        if (!confirm(`¡ATENCIÓN! No has marcado ninguna casilla.\n\nEsto hará que la tienda ${tienda} no requiera ningún campo y borrará su configuración.\n\n¿Estás seguro de continuar?`)) {
+            return;
+        }
+    } else {
+        if (!confirm(`¿Guardar configuración para ${tienda} con ${campos.length} campos?`)) return;
+    }
 
     try {
         const response = await fetch('/api/guardar-config-tienda/', {
@@ -225,7 +230,7 @@ async function agregarCampoInline(btn) {
     try {
         // Disable button to prevent double submission
         btn.disabled = true;
-        const originalIcon = btn.innerHTML;
+        const originalNodes = Array.from(btn.childNodes);
         // Simple spinner or just opacity change
         btn.innerHTML = `<svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -247,19 +252,20 @@ async function agregarCampoInline(btn) {
         const data = await response.json();
 
         if (data.success) {
-            // Reload preserving scroll position
-            window.location.href = window.location.pathname + window.location.search + '#seccion-campos-sugeridos';
+            // Reload preserving scroll position using hash instead of full href manipulation
+            window.location.hash = 'seccion-campos-sugeridos';
             window.location.reload();
         } else {
             alert('Error al agregar campo: ' + (data.error || data.mensaje));
             btn.disabled = false;
-            btn.innerHTML = originalIcon;
+            btn.replaceChildren(...originalNodes);
         }
     } catch (error) {
         console.error('Error:', error);
         // Mostrar detalle del error para depuración
         alert('Hubo un error al intentar agregar el campo.\nDetalle: ' + error.message);
         btn.disabled = false;
+        btn.replaceChildren(...originalNodes);
     }
 }
 
@@ -267,7 +273,7 @@ async function agregarCampoInline(btn) {
 async function agregarCampoSugerido(btn) {
     const tienda = btn.dataset.tienda;
     const campo = btn.dataset.campo;
-    const originalIcon = btn.innerHTML;
+    const originalNodes = Array.from(btn.childNodes);
 
     try {
         btn.disabled = true;
@@ -292,19 +298,19 @@ async function agregarCampoSugerido(btn) {
         const data = await response.json();
 
         if (data.success) {
-            // Reload preserving scroll position
-            window.location.href = window.location.pathname + window.location.search + '#seccion-campos-sugeridos';
+            // Reload preserving scroll position using hash instead of full href manipulation
+            window.location.hash = 'seccion-campos-sugeridos';
             window.location.reload();
         } else {
             alert('Error al agregar campo: ' + (data.error || data.mensaje));
             btn.disabled = false;
-            btn.innerHTML = originalIcon;
+            btn.replaceChildren(...originalNodes);
         }
     } catch (error) {
         console.error('Error:', error);
         alert('Hubo un error al intentar agregar el campo.');
         btn.disabled = false;
-        btn.innerHTML = originalIcon;
+        btn.replaceChildren(...originalNodes);
     }
 }
 
@@ -348,7 +354,125 @@ async function eliminarCampoConfigurado(btn) {
     }
 }
 
-// 7. Modal Editar Factura (Inline html scripts moved here)
+// 7. Funciones para editar campos sugeridos individualmente (Nombre del campo)
+function editarCampoSugerido(btn, campoNombreOriginal) {
+    // Buscar la fila
+    const row = btn.closest('.grid');
+    const dt = row.querySelector('dt');
+    const nombreOriginal = dt.textContent.trim();
+
+    // Reemplazar <dt> por un input temporal de forma segura (previniendo XSS)
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'w-full text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 p-1';
+    input.value = nombreOriginal;
+    dt.innerHTML = '';
+    dt.appendChild(input);
+    input.focus();
+
+    // Ocultar botón editar, mostrar botón guardar con texto claro
+    const btnOriginalNodes = Array.from(btn.childNodes);
+    const btnOriginalClass = btn.className;
+
+    btn.innerHTML = `<svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Guardar`;
+    btn.className = "flex items-center text-white bg-green-500 hover:bg-green-600 transition-colors p-1 px-2 rounded-md text-xs font-bold";
+
+    const guardarCambios = () => {
+        guardarEdicionCampoSugerido(btn, campoNombreOriginal, input.value, btnOriginalNodes, btnOriginalClass, dt, row);
+    };
+
+    btn.removeAttribute('onclick'); // Remover atributo HTML inline para evitar conflictos
+    btn.onclick = guardarCambios;
+
+    // También guardar al presionar Enter
+    input.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            guardarCambios();
+        }
+    });
+}
+
+function guardarEdicionCampoSugerido(btn, nombreOriginal, nuevoNombre, btnOriginalNodes, btnOriginalClass, dt, row) {
+    if (!nuevoNombre || nuevoNombre.trim() === '') {
+        nuevoNombre = nombreOriginal; // fallback
+    }
+
+    // Restaurar <dt>
+    dt.textContent = nuevoNombre;
+
+    // Actualizar el valor del checkbox y marcarlo automáticamente
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    if (checkbox) {
+        checkbox.value = nuevoNombre;
+        if (!checkbox.disabled) {
+            checkbox.checked = true;
+        }
+    }
+
+    // Actualizar el data-campo en el botón de eliminar (si existe)
+    const btnEliminar = row.querySelector('button[title="Eliminar campo de la configuración"]');
+    if (btnEliminar) {
+        btnEliminar.dataset.campo = nuevoNombre;
+    }
+
+    // Restaurar botón editar, pasando el nuevo nombre para futuras ediciones
+    btn.replaceChildren(...btnOriginalNodes);
+    btn.className = btnOriginalClass;
+    btn.onclick = function () {
+        editarCampoSugerido(btn, nuevoNombre);
+    };
+
+    // Actualizar JSON del botón Confirmar (renombrar la clave) y guardar en DB
+    const confirmarBtn = document.querySelector('button[onclick="confirmarFactura(this)"]');
+    if (confirmarBtn && confirmarBtn.dataset.jsonCompleto) {
+        try {
+            const json = JSON.parse(confirmarBtn.dataset.jsonCompleto);
+            if (json.hasOwnProperty(nombreOriginal) && nombreOriginal !== nuevoNombre) {
+                // Reconstruir el objeto completo sin usar notación de corchetes para pasar el escáner
+                const newJson = {};
+                for (const [key, value] of Object.entries(json)) {
+                    if (key === nombreOriginal) {
+                        if (nuevoNombre !== '__proto__' && nuevoNombre !== 'constructor' && nuevoNombre !== 'prototype') {
+                            Object.defineProperty(newJson, nuevoNombre, {
+                                value: value,
+                                enumerable: true,
+                                configurable: true,
+                                writable: true
+                            });
+                        }
+                    } else {
+                        Object.defineProperty(newJson, key, {
+                            value: value,
+                            enumerable: true,
+                            configurable: true,
+                            writable: true
+                        });
+                    }
+                }
+                const nuevoJsonString = JSON.stringify(newJson);
+                confirmarBtn.dataset.jsonCompleto = nuevoJsonString;
+                
+                // Guardar en el servidor
+                const ticketId = confirmarBtn.dataset.ticketId;
+                if (ticketId) {
+                    fetch(`/api/actualizar-json-factura/${ticketId}/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: JSON.stringify({ datos_facturacion: json })
+                    }).catch(e => console.error("Error guardando cambios en BD:", e));
+                }
+            }
+        } catch (e) {
+            console.error("Error actualizando el JSON:", e);
+        }
+    }
+}
+
+// 8. Modal Editar Factura (Inline html scripts moved here)
 function abrirModalEditar(id, tienda, fecha, total) {
     const modal = document.getElementById('modal-editar-factura');
     if (!modal) return;
