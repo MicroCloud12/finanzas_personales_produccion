@@ -19,12 +19,12 @@
         </svg>
         Agregar Concepto
       </a>
-      <button class="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+      <a href="{% url 'revisar_historicos' %}" class="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
         </svg>
-        Revisar Ajustes
-      </button>
+        Revisar Históricos
+      </a>
     </div>
   </div>
 
@@ -70,7 +70,7 @@
               ${{ p.monto_presupuestado|floatformat:2 }}
             </td>
             <td class="px-6 py-4 bg-white text-sm text-gray-900 font-bold">
-              $0.00
+              ${{ p.monto_real|floatformat:2 }}
             </td>
             <td class="px-6 py-4 bg-white text-sm">
               <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
@@ -91,6 +91,16 @@
                   <span class="resultado-badge hidden absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-sm"></span>
                 </button>
                 
+                <button type="button" onclick="procesarRecibosAnteriores(this, {{ p.id }})" data-url="{% url 'procesar_recibos_anteriores_presupuesto' p.id %}" class="text-green-600 hover:text-green-900 p-1 hover:bg-green-50 rounded relative group transition-colors" title="Procesar recibos anteriores">
+                  <svg class="w-4 h-4 icon-procesar" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                  </svg>
+                  <svg class="w-4 h-4 icon-spinner-procesar hidden animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                </button>
+                
                 <button type="button" onclick="predecirRecibo(this, {{ p.id }})" data-url="{% url 'predecir_recibo_presupuesto' p.id %}" class="text-purple-600 hover:text-purple-900 p-1 hover:bg-purple-50 rounded relative group transition-colors" title="Predecir recibo de este mes">
                   <svg class="w-4 h-4 icon-magia" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
@@ -101,6 +111,11 @@
                   </svg>
                 </button>
                 {% endif %}
+                <a href="{% url 'editar_presupuesto' p.id %}" class="text-yellow-600 hover:text-yellow-900 p-1 hover:bg-yellow-50 rounded" title="Editar">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                  </svg>
+                </a>
                 <button class="text-red-600 hover:text-red-900 p-1 hover:bg-red-50 rounded" title="Eliminar">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -126,81 +141,5 @@
 {% endblock %}
 
 {% block javascript %}
-<script>
-function buscarRecibos(btn, presupuestoId) {
-    const url = btn.dataset.url;
-    const iconLupa = btn.querySelector('.icon-lupa');
-    const iconSpinner = btn.querySelector('.icon-spinner');
-    const badge = btn.querySelector('.resultado-badge');
-
-    iconLupa.classList.add('hidden');
-    iconSpinner.classList.remove('hidden');
-    badge.classList.add('hidden');
-
-    fetch(url, {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/json'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        iconSpinner.classList.add('hidden');
-        iconLupa.classList.remove('hidden');
-
-        if (data.error) {
-            alert(data.error);
-        } else if (data.cantidad !== undefined) {
-            badge.textContent = data.cantidad;
-            badge.classList.remove('hidden');
-        }
-    })
-    .catch(error => {
-        iconSpinner.classList.add('hidden');
-        iconLupa.classList.remove('hidden');
-        alert("Ocurrió un error al buscar recibos.");
-        console.error(error);
-    });
-}
-
-function predecirRecibo(btn, presupuestoId) {
-    const url = btn.dataset.url;
-    const iconMagia = btn.querySelector('.icon-magia');
-    const iconSpinner = btn.querySelector('.icon-spinner-magia');
-
-    iconMagia.classList.add('hidden');
-    iconSpinner.classList.remove('hidden');
-
-    fetch(url, {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/json'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        iconSpinner.classList.add('hidden');
-        iconMagia.classList.remove('hidden');
-
-        if (data.error) {
-            alert(data.error);
-        } else if (data.success) {
-            let mensaje = `¡Predicción generada!\n\nMonto estimado: $${data.monto_predicho}\n`;
-            if (data.fecha_predicha) {
-                mensaje += `Fecha estimada: ${data.fecha_predicha}\n`;
-            }
-            mensaje += `Razonamiento: ${data.razonamiento}`;
-            alert(mensaje);
-            // Recargar la página para que se vea el nuevo presupuesto
-            window.location.reload();
-        }
-    })
-    .catch(error => {
-        iconSpinner.classList.add('hidden');
-        iconMagia.classList.remove('hidden');
-        alert("Ocurrió un error al predecir el recibo. Esto puede tardar si hay muchos recibos.");
-        console.error(error);
-    });
-}
-</script>
+<script src="{% static 'js/presupuesto.js' %}"></script>
 {% endblock %}

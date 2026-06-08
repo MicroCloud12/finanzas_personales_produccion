@@ -419,7 +419,7 @@
                 
                 <!-- Number -->
                 <div>
-                    <h4 class="text-xl sm:text-[1.65rem] tracking-[0.2em] font-mono leading-none text-gray-100 flex items-center shadow-black/50" id="visualCardNumber" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.8);"><span class="inline-block relative top-[0.1em] transform translate-y-px opacity-70">•••• •••• ••••</span> <span class="ml-4 opacity-90 font-medium">{{ tarjetas_list.0.terminacion }}</span></h4>
+                    <h4 class="text-xl sm:text-[1.65rem] tracking-[0.2em] font-mono leading-none text-gray-100 flex items-center shadow-black/50" id="visualCardNumber" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.8);"><span class="inline-block transform -translate-y-0.5 opacity-70">•••• •••• ••••</span> <span class="ml-4 opacity-90 font-medium">{{ tarjetas_list.0.terminacion }}</span></h4>
                 </div>
 
                 <!-- Footer details -->
@@ -456,7 +456,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
 
         {# Left Column (2/3 width): Growth Plan & Budget vs Actual #}
-        <div class="lg:col-span-2 flex flex-col gap-8">
+        <div class="lg:col-span-2 flex flex-col gap-8 h-full">
 
             {# Growth Plan Chart (styled as Total balance overview) #}
             <div class="card-premium p-6">
@@ -490,7 +490,7 @@
             </div>
 
             {# Budget vs Actual Chart (styled as Comparing of budget and expence) #}
-            <div class="card-premium p-6">
+            <div class="card-premium p-6 flex flex-col flex-grow">
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-lg text-gray-900">Comparing of budget and expence</h3>
                     <div class="flex items-center gap-4">
@@ -508,8 +508,8 @@
                         </select>
                     </div>
                 </div>
-                <div class="relative h-96 w-full">
-                    <canvas id="budgetVsActualChart"></canvas>
+                <div class="relative w-full flex-grow min-h-[24rem]">
+                    <canvas id="budgetVsActualChart" data-url="{% url 'api_datos_presupuesto' %}"></canvas>
                 </div>
             </div>
 
@@ -562,7 +562,7 @@
 </div>
 
 {% block javascript %}
-<script src="{% static 'js/dashboard_charts.js' %}?v=9"></script>
+<script src="{% static 'js/dashboard_charts.js' %}?v=12"></script>
 <script src="{% static 'js/dashboard_cards.js' %}"></script>
 {% endblock javascript %}
 {% endblock %}
