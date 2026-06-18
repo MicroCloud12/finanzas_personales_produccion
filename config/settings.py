@@ -32,9 +32,9 @@ DEBUG = False
 # Application definition
 
 INSTALLED_APPS = [
+    'finanzas',
     'tailwind',
     'theme',
-    'finanzas',
     'allauth',
     'django.contrib.admin',
     'django.contrib.auth',
