@@ -19,7 +19,7 @@ services:
 
   web:
     build: .
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --log-file=- --forwarded-allow-ips="*"
+    command: 'sh -c "python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --log-file=- --forwarded-allow-ips=*"'
     restart: always
     env_file:
       - .env
