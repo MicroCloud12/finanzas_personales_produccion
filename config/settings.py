@@ -18,7 +18,7 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv()
-NPM_BIN_PATH = os.getenv("NPM_BIN_PATH", "/usr/bin/npm")
+NPM_BIN_PATH = r"C:\Program Files\nodejs\npm.cmd"
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -26,15 +26,17 @@ NPM_BIN_PATH = os.getenv("NPM_BIN_PATH", "/usr/bin/npm")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(',')
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'finanzas',
     'tailwind',
     'theme',
+    'finanzas',
     'allauth',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -48,6 +50,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     # Proveedor específico de Google
     'allauth.socialaccount.providers.google',
+    'compressor',
 ]
 
 MIDDLEWARE = [
@@ -144,6 +147,16 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
 ]
 
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+    'compressor.finders.CompressorFinder',
+]
+
+COMPRESS_ENABLED = not DEBUG
+COMPRESS_OFFLINE = True # It's better for production
+
+
 # Configuración de almacenamiento para WhiteNoise (optimiza el caché).
 STORAGES = {
     "staticfiles": {
@@ -171,8 +184,8 @@ LOGOUT_REDIRECT_URL = 'home'
 # config/settings.py
 
 # --- CELERY SETTINGS ---
-CELERY_BROKER_URL = 'redis://redis:6379/0'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -263,16 +276,3 @@ SESSION_EXPIRE_AFTER_LAST_ACTIVITY = True
 
 # URL a la que se redirige al usuario cuando su sesión expira.
 SESSION_TIMEOUT_REDIRECT = 'login' 
-
-ALLOWED_HOSTS = [
-    'prismavault.mx',
-    'www.prismavault.mx', 
-    'localhost', 
-    '127.0.0.1', 
-    '0.0.0.0',
-    '138.197.25.233'
-]
-
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-USE_X_FORWARDED_HOST = True
-USE_X_FORWARDED_PORT = True
