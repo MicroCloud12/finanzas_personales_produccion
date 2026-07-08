@@ -80,6 +80,7 @@
                         <th class="px-6 py-4">Capital</th>
                         <th class="px-6 py-4">Interés</th>
                         <th class="px-6 py-4">IVA</th>
+                        <th class="px-6 py-4">Pago Total del Periodo</th>
                         <th class="px-6 py-4 text-right">Saldo Insoluto</th>
                     </tr>
                 </thead>
@@ -97,6 +98,9 @@
                         </td>
                         <td class="px-6 py-4 bg-white text-sm text-gray-600">
                             ${{ cuota.iva|floatformat:2|intcomma }}
+                        </td>
+                        <td class="px-6 py-4 bg-white text-sm text-gray-800 font-medium">
+                            ${{ cuota.pago_total|floatformat:2|intcomma }}
                         </td>
                         <td class="px-6 py-4 bg-white text-sm text-right font-bold text-indigo-600">
                             ${{ cuota.saldo_insoluto|floatformat:2|intcomma }}

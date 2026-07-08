@@ -191,6 +191,15 @@ def revisar_amortizaciones(request, deuda_id):
     """Muestra las tablas de amortización pendientes para su revisión."""
     deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
     pendientes = AmortizacionPendiente.objects.filter(deuda=deuda, estado='pendiente')
+    # pago_total no viene en datos_json (lo calcula PagoAmortizacion al aprobar).
+    # Lo anotamos en memoria para mostrarlo en la tabla de revisión (no se guarda).
+    for p in pendientes:
+        for cuota in p.datos_json:
+            cuota['pago_total'] = (
+                float(cuota.get('capital', 0) or 0)
+                + float(cuota.get('interes', 0) or 0)
+                + float(cuota.get('iva', 0) or 0)
+            )
     context = {
         'deuda': deuda,
         'pendientes': pendientes
