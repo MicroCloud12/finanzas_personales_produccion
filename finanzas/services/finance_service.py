@@ -1,13 +1,13 @@
 # finanzas/services/finance_service.py
-import re
 from decimal import Decimal
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from .market_data_service import StockPriceService
-from ..models import TransaccionPendiente, registro_transacciones, User, inversiones, PendingInvestment, Deuda, PagoAmortizacion
+from ..models import TransaccionPendiente, registro_transacciones, User, inversiones, PendingInvestment, Deuda, PagoAmortizacion, Cuenta
 from ..utils import parse_date_safely
+from ..categorias import descripcion_final, cuenta_ahorro_para, monto_de_ticket, _a_decimal, CATEGORIA_POR_DEFECTO, SENTINELA_NUEVA_AHORRO
 import time
 
 logger = logging.getLogger(__name__)
@@ -23,35 +23,69 @@ class TransactionService:
         return TransaccionPendiente.objects.create(propietario=user, datos_json=data, estado='pendiente')
 
     @staticmethod
-    def approve_pending_transaction(ticket_id: int, user: User, cuenta: str, categoria: str, tipo_transaccion: str, cuenta_destino: str):
+    def resolver_cuenta(user: User, nombre):
+        """Convierte el nombre elegido en el formulario de tickets en una Cuenta (o None)."""
+        nombre = (nombre or '').strip()
+        if nombre.upper() in {'', 'N/A', 'OTRA CUENTA', 'SIN CUENTA'}:
+            return None
+        return Cuenta.objects.filter(propietario=user, nombre__iexact=nombre).first()
+
+    @staticmethod
+    def approve_pending_transaction(ticket_id: int, user: User, cuenta: str, categoria: str, tipo_transaccion: str, cuenta_destino: str, monto=None):
+        """
+        Convierte un ticket pendiente en un movimiento del libro mayor.
+        Si no se eligió cuenta, se usa la cuenta principal del usuario para que la
+        aprobación sea de un clic. Si no se eligió categoría, se usa 'Otro'.
+        """
         try:
             ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=user)
             datos = ticket.datos_json
-            tipo_documento = datos.get("tipo_documento")
-            tipo_movimiento = datos.get("tipo_movimiento")
-            
-            descripcion_final = datos.get("descripcion_corta", "Sin descripción")
-            
-            if tipo_documento == 'TRANSFERENCIA' or tipo_movimiento == 'TRANSFERENCIA':
-                descripcion_final = re.sub(r'(?i)^transferencias?\s*(de|por)?\s*', '', descripcion_final).strip()
-            elif tipo_documento == 'TICKET_COMPRA' or tipo_movimiento == 'GASTO':
-                descripcion_final = datos.get("establecimiento", descripcion_final)
-            
             fecha_segura = parse_date_safely(datos.get("fecha") or datos.get("fecha_emision"))
-            monto_str = str(datos.get("total") or datos.get("total_pagado") or 0.0)
+            # El monto lo puede corregir/escribir el usuario en la fila; si no, el que leyó la IA.
+            monto_final = _a_decimal(monto) if monto not in (None, '') else None
+            if monto_final is None:
+                monto_final = monto_de_ticket(datos)
+            if monto_final <= 0:
+                return None   # sin monto no hay movimiento que registrar
+            tipo_transaccion = (tipo_transaccion or 'GASTO').upper()
+            categoria = (categoria or '').strip() or CATEGORIA_POR_DEFECTO
+            descripcion_mov = descripcion_final(datos, tipo_transaccion, categoria)
+
+            # En el formulario de tickets "cuenta" es la cuenta protagonista del
+            # movimiento: para un INGRESO es a la que ENTRA, para lo demás de la que SALE.
+            cuenta_obj = TransactionService.resolver_cuenta(user, cuenta)
+            if (cuenta_destino or '').strip() == SENTINELA_NUEVA_AHORRO:
+                destino_obj = cuenta_ahorro_para(user, crear=True)
+            else:
+                destino_obj = TransactionService.resolver_cuenta(user, cuenta_destino)
+            principal = (Cuenta.objects.filter(propietario=user).order_by('-es_principal', 'id').first())
+
+            # Un ahorro nunca es gasto: es una transferencia a la cuenta de ahorro
+            # (se crea "Cuenta Ahorro" si el usuario aún no tiene una).
+            if tipo_transaccion in ('GASTO', 'TRANSFERENCIA') and categoria.lower() == 'ahorro':
+                tipo_transaccion = 'TRANSFERENCIA'
+                if destino_obj is None or destino_obj.tipo != 'AHORRO':
+                    destino_obj = cuenta_ahorro_para(user, crear=True)
+
+            if tipo_transaccion == 'INGRESO':
+                origen, destino = None, (destino_obj or cuenta_obj or principal)
+            elif tipo_transaccion == 'GASTO':
+                origen, destino = (cuenta_obj or principal), None
+            else:
+                origen, destino = (cuenta_obj or principal), destino_obj
 
             registro_transacciones.objects.create(
                 propietario=user,
                 fecha=fecha_segura,
-                descripcion=descripcion_final.upper(), 
+                descripcion=descripcion_mov,
                 categoria=categoria,
-                monto=Decimal(monto_str),
+                monto=monto_final,
                 tipo=tipo_transaccion,
-                cuenta_origen=cuenta,
-                cuenta_destino=cuenta_destino,
-                datos_extra=datos 
+                origen=origen,
+                destino=destino,
+                datos_extra=datos
             )
-            
+
             ticket.estado = 'aprobada'
             ticket.save()
             return ticket
@@ -110,51 +144,6 @@ class InvestmentService:
         )
 
     @staticmethod
-    def calculate_monthly_profit(user, price_service=None):
-        """Calcula la ganancia mensual no realizada de las inversiones de un usuario."""
-        servicio_precios = price_service or StockPriceService()
-        ganancias_mensuales = defaultdict(Decimal)
-        
-        inversiones_usuario = inversiones.objects.filter(propietario=user)
-        if not inversiones_usuario:
-            return {}
-
-        hoy = datetime.now().date()
-        inversiones_por_ticker = defaultdict(list)
-        inicio_por_ticker = {}
-
-        for inv in inversiones_usuario:
-            inversiones_por_ticker[inv.emisora_ticker].append(inv)
-            inicio = inv.fecha_compra.replace(day=1)
-            if inv.emisora_ticker not in inicio_por_ticker or inicio < inicio_por_ticker[inv.emisora_ticker]:
-                inicio_por_ticker[inv.emisora_ticker] = inicio
-
-        series_cache = {}
-        for ticker, inicio in inicio_por_ticker.items():
-            series = servicio_precios.get_monthly_series(ticker, inicio, hoy)
-            series_cache[ticker] = {p["datetime"][:7]: Decimal(str(p["close"])) for p in series}
-            time.sleep(12)
-
-        for ticker, inversiones_list in inversiones_por_ticker.items():
-            precios_por_mes = series_cache.get(ticker, {})
-            for inv in inversiones_list:
-                fecha_iter = inv.fecha_compra.replace(day=1)
-                while fecha_iter <= hoy:
-                    mes_str = fecha_iter.strftime("%Y-%m")
-                    precio_cierre = precios_por_mes.get(mes_str)
-                    if precio_cierre is not None:
-                        costo_total_adquisicion = inv.cantidad_titulos * inv.precio_compra_titulo
-                        valor_actual_mercado = inv.cantidad_titulos * precio_cierre
-                        ganancia_perdida_no_realizada = valor_actual_mercado - costo_total_adquisicion
-                        ganancias_mensuales[mes_str] += ganancia_perdida_no_realizada
-                        
-                    if fecha_iter.month == 12:
-                        fecha_iter = date(fecha_iter.year + 1, 1, 1)
-                    else:
-                        fecha_iter = date(fecha_iter.year, fecha_iter.month + 1, 1)
-        return dict(sorted(ganancias_mensuales.items()))
-
-    @staticmethod
     def calculate_daily_portfolio_history(user, price_service=None):
         """
         Calcula el historial diario del valor del portafolio.
@@ -195,26 +184,31 @@ class InvestmentService:
             for ticker, lista_inv in inversiones_por_ticker.items():
                 cantidad_acumulada_ticker = Decimal('0.0')
                 costo_acumulado_ticker = Decimal('0.0')
+                precio_actual_ticker = None
                 
                 for inv in lista_inv:
                     if inv.fecha_compra <= fecha_iter:
                         cantidad_acumulada_ticker += inv.cantidad_titulos
                         costo_acumulado_ticker += inv.costo_total_adquisicion
+                        precio_actual_ticker = inv.precio_actual_titulo
                 
                 if cantidad_acumulada_ticker > 0:
                     capital_invertido_dia += costo_acumulado_ticker
                     
-                    fecha_str = fecha_iter.strftime("%Y-%m-%d")
-                    precio_cierre = precios_diarios_cache.get(ticker, {}).get(fecha_str)
-                    
-                    if precio_cierre is None:
-                        for i in range(1, 6):
-                            d_back = fecha_iter - relativedelta(days=i)
-                            p_back = precios_diarios_cache.get(ticker, {}).get(d_back.strftime("%Y-%m-%d"))
-                            if p_back:
-                                precio_cierre = p_back
-                                break
-                                
+                    if fecha_iter == hoy and precio_actual_ticker:
+                        precio_cierre = precio_actual_ticker
+                    else:
+                        fecha_str = fecha_iter.strftime("%Y-%m-%d")
+                        precio_cierre = precios_diarios_cache.get(ticker, {}).get(fecha_str)
+                        
+                        if precio_cierre is None:
+                            for i in range(1, 6):
+                                d_back = fecha_iter - relativedelta(days=i)
+                                p_back = precios_diarios_cache.get(ticker, {}).get(d_back.strftime("%Y-%m-%d"))
+                                if p_back:
+                                    precio_cierre = p_back
+                                    break
+                                    
                     if precio_cierre:
                          valor_total_dia += cantidad_acumulada_ticker * precio_cierre
                     else:

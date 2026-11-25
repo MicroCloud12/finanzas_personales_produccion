@@ -8,6 +8,18 @@ Role: Eres un experto analista contable especializado en extracción de datos fi
 Task: Extrae la información del recibo o ticket y mapea los valores exactamente a la estructura JSON requerida.
 
 Approach step-by-step:
+0. PRIMERO determina el tipo de documento:
+   - TICKET_COMPRA: ticket o recibo de una compra o pago.
+   - TRANSFERENCIA: comprobante de transferencia, SPEI, pago de servicio o retiro de cajero.
+   - CAPTURA_BANCO: captura de pantalla de la app del banco que muestra un depósito recibido o el saldo
+     de una cuenta (ej. "Cuentas en pesos", "Saldo disponible", pantalla de inicio del banco). Trátala como
+     un INGRESO: tipo_movimiento = "INGRESO", total = el monto del depósito si aparece y, si no, el saldo
+     que muestra la pantalla (NUNCA 0 si hay una cifra visible). Si es un abono de nómina (texto como NOMINA,
+     SUELDO, PAGO DE NOMINA, o el depósito viene de una empresa) descripcion_corta = "Nómina" y
+     categoria_sugerida = "Nomina"; si no, descripcion_corta = el concepto visible o "Depósito".
+     cuenta_origen_sugerida = la cuenta del CONTEXTO
+     que corresponda al banco o a los últimos 4 dígitos visibles (es la cuenta a la que ENTRA el dinero).
+   - NO_FINANCIERO: la imagen no contiene información financiera. Devuelve total = 0 y tipo_movimiento = "NINGUNO".
 1. Analiza el nombre del establecimiento comercial principal. ESTANDARIZA el nombre eliminando razones sociales (ej. "S.A. de C.V."). Ignora bancos de terminales como BBVA/CLIP. Si el ticket es de un cajero automático y dice "RETIRO DE EFECTIVO" o "DISPOSICION", el establecimiento debe ser "Cajero [Nombre del Banco]" (ej. "Cajero Banorte"). Si es una captura de transferencia bancaria, IGNORA el título de la app (ej. "Santander Universidades"); el establecimiento debe ser el nombre del destinatario, o en su defecto, dejarlo vacío.
 2. Identifica el monto total final pagado (o retirado). Si el monto aparece con signo negativo, extrae el valor absoluto positivo.
 3. Clasifica el movimiento como GASTO, INGRESO o TRANSFERENCIA. Un retiro en cajero suele ser una TRANSFERENCIA a cuenta de efectivo, o GASTO.
@@ -21,10 +33,11 @@ Contexto del usuario:
 Format: Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
 {{
     "_razonamiento": "string - Explica paso a paso cómo identificaste el total, la cuenta origen y por qué elegiste el establecimiento y concepto.",
+    "tipo_documento": "TICKET_COMPRA|TRANSFERENCIA|CAPTURA_BANCO|NO_FINANCIERO",
     "fecha": "YYYY-MM-DD",
     "establecimiento": "string - Comercio o destinatario. Si es una app bancaria, déjalo vacío. PROHIBIDO usar 'Universidades' o el nombre del banco.",
     "total": float,
-    "tipo_movimiento": "GASTO|INGRESO|TRANSFERENCIA",
+    "tipo_movimiento": "GASTO|INGRESO|TRANSFERENCIA|NINGUNO",
     "categoria_sugerida": "string",
     "cuenta_origen_sugerida": "string",
     "cuenta_destino_sugerida": "string o N/A",
@@ -79,53 +92,6 @@ Format: Devuelve ÚNICAMENTE un JSON válido que sea un ARRAY de objetos `[]` co
   "saldo_insoluto": float
 }}
 """,
-    "facturacion": """
-Role: Eres un auditor fiscal especialista en CFDI 4.0.
-
-Objective: Extraer con precisión absoluta los datos para facturación, garantizando capturar el MONTO TOTAL real pagado, sin confundirlo con subtotales o cambio (que suele ser cero).
-
-Approach step-by-step:
-1. Analiza si el establecimiento pertenece a las TIENDAS CONOCIDAS del CONTEXTO. ESTANDARIZA el nombre de la tienda eliminando razones sociales.
-2. Extrae los `campos_requeridos` indicados si es tienda conocida, o los genéricos (Folio, Ticket, etc.) si no lo es.
-3. Busca el monto total a pagar. Identifica explícitamente palabras como "TOTAL", "IMPORTE" o "PAGO".
-4. EVITA extraer líneas que digan "CAMBIO", "VUELTO" o "SUBTOTAL". Si tu extracción inicial del total resulta en 0.0, vuelve a evaluar el texto buscando el verdadero importe cobrado.
-5. Clasifica el tipo de documento.
-
-Contexto de Tiendas:
-{context_str}
-
-Format: Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
-{{
-  "_razonamiento": "string - Explica paso a paso cómo identificaste el total exacto para evitar extraer un cero.",
-  "tienda": "string",
-  "fecha": "YYYY-MM-DD",
-  "total": float,
-  "tipo_documento": "TICKET_COMPRA|TRANSFERENCIA",
-  "campos_adicionales": {{}}
-}}
-""",
-    "facturacion_from_text": """
-Role: Eres un sistema OCR de extracción estructurada avanzado.
-
-Objective: Extraer los datos básicos de facturación a partir de texto OCR, garantizando que el MONTO TOTAL sea el importe final pagado y nunca un valor de cero por error.
-
-Approach step-by-step:
-1. Identifica el nombre comercial de la tienda y ESTANDARIZA el nombre eliminando sufijos legales.
-2. Localiza la fecha de la compra o emisión.
-3. Extrae el monto TOTAL final pagado. Discrimina estrictamente entre el total real y otros números como el "Cambio" o "Vuelto" (que suelen ser $0.00). NO los confundas.
-4. Sense Check: Verifica que el total no sea 0.0 (a menos que el OCR explícitamente indique un descuento del 100%).
-
-Texto OCR:
-{text_content}
-
-Format: Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
-{{
-  "_razonamiento": "string - Indica brevemente la lógica para extraer el total real confirmando que no se tomó el 'cambio'.",
-  "tienda": "string",
-  "fecha": "YYYY-MM-DD",
-  "total": float
-}}
-""",
     "facturacion_from_text_with_context": """
 Role: Eres un Auditor Fiscal CFDI 4.0 automatizado y minucioso.
 
@@ -162,66 +128,49 @@ Task: Extrae los datos clave del recibo de servicio público o privado.
 Approach step-by-step:
 1. Identifica la fecha exacta de emisión del documento.
 2. Localiza el monto total a pagar.
-3. Extrae el periodo facturado textualmente.
-4. Identifica el nivel de consumo y su unidad de medida.
+3. Localiza la fecha límite de pago ("límite de pago", "pagar antes de", "vencimiento"); si no aparece, null.
+4. Extrae el periodo facturado textualmente.
+5. Identifica el nivel de consumo y su unidad de medida.
 
 Format: Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
 {{
-  "_razonamiento": "string - Explica de dónde sacaste el monto y el periodo.",
+  "_razonamiento": "string - Explica de dónde sacaste el monto, el periodo y la fecha límite.",
   "fecha_emision": "YYYY-MM-DD",
-  "monto_total": float,
-  "periodo_facturado": "string",
-  "consumo": "string"
-}}
-""",
-    "recibo_servicio_from_text": """
-Role: Eres un analista de servicios domiciliarios operando sobre texto OCR.
-
-Task: Extrae los datos clave del recibo basándote únicamente en el texto OCR proporcionado.
-
-Approach step-by-step:
-1. Lee el documento de arriba hacia abajo para encontrar la fecha de emisión.
-2. Identifica el total a pagar definitivo.
-3. Localiza el mes o rango de meses del periodo de facturación.
-4. Extrae la métrica de consumo.
-
-Texto OCR:
-{text_content}
-
-Format: Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
-{{
-  "_razonamiento": "string - Explica brevemente la extracción.",
-  "fecha_emision": "YYYY-MM-DD",
+  "fecha_limite_pago": "YYYY-MM-DD o null",
   "monto_total": float,
   "periodo_facturado": "string",
   "consumo": "string"
 }}
 """,
     "prediccion_servicio": """
-Role: Eres un Analista Financiero Predictivo Senior experto en series de tiempo.
+Role: Eres un Analista Financiero y de Servicios Residenciales en México experto en pronóstico de consumo estacional (agua, luz CFE, gas, internet y servicios del hogar).
 
-Objective: Estimar el monto a pagar y la fecha exacta de emisión del próximo recibo de servicio (luz, agua, gas).
+Task: Pronostica cuánto pagará el usuario en su PRÓXIMO recibo (posterior al último registrado) y su fecha estimada de emisión, sin importar cuántos días falten para que llegue.
 
-Details:
-- Se te proporcionará un JSON con la 'fecha_actual_sistema' y el 'historial_recibos'.
-- Regla para la 'fecha_predicha': Toma la fecha del último recibo y calcula matemáticamente la próxima fecha que sea ESTRICTAMENTE POSTERIOR al mes de 'fecha_actual_sistema'.
-- IMPORTANTE: NO iterar paso a paso escribiendo cada ciclo si la fecha es antigua. Utiliza una suma matemática directa para encontrar el mes futuro correspondiente que preserve el día original.
-- Ejemplos: Si hoy es Junio y el cálculo base te da Julio, DETENTE, esa es la fecha correcta. Si el último recibo fue hace un año, calcula directamente el salto de meses hacia el futuro actual (Julio o Agosto del presente año) conservando el día y la frecuencia (mensual/bimestral).
+Approach step-by-step:
+1. Frecuencia real del servicio: Revisa `periodo_facturado` y las fechas del historial. Si el periodo facturado cubre ~1 mes (ej. "08 OCT - 07 NOV"), el servicio es MENSUAL (~30 días) aunque falten recibos intermedios en el historial; si cubre ~2 meses (ej. "SEP - NOV"), es BIMESTRAL (~60 días). Calcula `fecha_predicha` estrictamente posterior a `fecha_actual` y al último recibo.
+2. Consumo físico y recibos atípicos: Analiza `consumo` (m³, kWh, litros) junto con `monto_total` para identificar el consumo habitual y el costo implícito por unidad. NO copies ni extrapoles linealmente el último recibo si presenta un pico inusual, recargo o salto aislado respecto al historial; pondera el comportamiento normal del hogar.
+3. Estacionalidad climática según los meses que cubrirá el próximo recibo:
+   - Invierno (noviembre, diciembre, enero, febrero):
+     * Agua: menor calor, riego y uso de agua fría -> el consumo suele bajar (típicamente 10%-25% respecto a meses cálidos o picos previos).
+     * Luz (CFE): sin aire acondicionado ni ventiladores -> el consumo baja notablemente frente a verano/otoño (salvo evidencia clara de calefacción eléctrica en invierno previo).
+     * Gas: el agua fría de red exige más gas en el boiler/calentador -> el consumo suele subir moderadamente (10%-25%).
+   - Primavera / Verano (abril a septiembre): sube el consumo de Agua y Luz por calor/aire acondicionado; baja el de Gas.
+   - Internet / Telefonía: monto estable salvo cambio de tarifa visible en los últimos recibos.
+   - Si hay recibos de la misma época del año anterior, úsalos como referencia principal.
+4. Estima el consumo esperado para la temporada entrante y conviértelo en `monto_predicho` con base en la tarifa implícita reciente.
 
-Approach:
-1. Determina la frecuencia (1 mes o 2 meses) basándote en la distancia entre los últimos recibos.
-2. Identifica el mes y año de la 'fecha_actual_sistema'.
-3. Calcula matemáticamente el próximo ciclo de facturación que caiga en un mes ESTRICTAMENTE MAYOR al mes de la 'fecha_actual_sistema'.
-4. Calcula el monto predicho promediando o detectando tendencias en los últimos recibos.
-
-Contexto (Fecha actual y sumario histórico):
+Datos del servicio e historial:
 {context_str}
+{text_content}
 
 Format: Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
 {{
-  "_razonamiento": "string - Muestra brevemente la frecuencia detectada y el salto matemático directo a la fecha futura, sin iteraciones largas.",
-  "monto_predicho": float,
-  "fecha_predicha": "YYYY-MM-DD"
+  "razonamiento": "string - Explicación clara y concisa en español (1-2 oraciones) indicando cómo influyeron el consumo histórico y la época del año (ej. invierno en diciembre/enero).",
+  "consumo_estimado": "string - Consumo físico esperado con su unidad (ej. '18 m3', '240 kWh' o 'N/A')",
+  "frecuencia_dias": int,
+  "fecha_predicha": "YYYY-MM-DD",
+  "monto_predicho": float
 }}
-"""
+""",
 }

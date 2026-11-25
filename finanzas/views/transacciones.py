@@ -1,20 +1,11 @@
 import json
 import logging
-from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from django.utils import timezone
-from django.urls import reverse
 from django.contrib import messages
-from django.contrib.auth import login
-from django.http import HttpResponse, JsonResponse
-from django.core.mail import send_mail
-from django.conf import settings
-from django.db.models import Sum, Q, Count
-from django.contrib.auth.models import User
-from django.utils.dateformat import DateFormat
-from django.db.models.functions import TruncMonth
-from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Q
+from django.http import JsonResponse
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
@@ -23,72 +14,58 @@ from celery.result import AsyncResult, GroupResult
 from config.celery import app as celery_app
 
 from ..utils import parse_date_safely
+from ..importacion import (a_sesion, aplicar_alias, aprender_alias, coincidencias, completar_desde_historial,
+                           de_sesion, decodificar, importar, leer_csv)
+from ..categorias import Sugeridor, categorias_para, clasificar_ticket, monto_de_ticket
 from ..tasks import (
-    process_drive_tickets,
-    process_drive_investments,
-    process_drive_amortizations,
-    process_drive_for_invoices,
-    process_drive_utility_bills,
+    process_drive_tickets, olvidar_lote,
 )
 from ..forms import (
-    TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, 
-    DeudaForm, PagoAmortizacionForm, CuentaForm
+    TransaccionesForm
 )
 from ..services import (
-    TransactionService, MercadoPagoService, StockPriceService, 
-    InvestmentService, RISCService, BillingService
+    TransactionService
 )
 from ..models import (
     registro_transacciones, Suscripcion, TransaccionPendiente, 
-    inversiones, GananciaMensual, PendingInvestment, Deuda, 
-    PagoAmortizacion, AmortizacionPendiente, Factura, PortfolioHistory,
-    GoogleCredentials, TiendaFacturacion, Cuenta, Presupuesto, 
-    HistorialReciboServicio
+    PendingInvestment, AmortizacionPendiente, Factura, Cuenta
 )
 
 logger = logging.getLogger(__name__)
 
+def _aprobar(request, ticket_id):
+    """Aprueba un ticket con los campos de SU fila del formulario (sufijo _<id>)."""
+    campo = lambda nombre, default=None: request.POST.get(f'{nombre}_{ticket_id}', default)
+    return TransactionService.approve_pending_transaction(
+        ticket_id=ticket_id,
+        user=request.user,
+        cuenta=campo('cuenta_origen'),
+        categoria=campo('categoria'),
+        tipo_transaccion=campo('tipo', 'GASTO'),
+        cuenta_destino=campo('cuenta_destino'),
+        monto=campo('monto', '').strip(),
+    )
+
 @login_required
 def aprobar_todos_tickets(request):
-    """
-    Aprueba TODOS los tickets pendientes que estaban en la página, cada uno
-    con su propia configuración seleccionada.
-    """
+    """Aprueba todos los tickets pendientes, cada uno con lo elegido en su fila."""
     if request.method == 'POST':
-        # Primero, obtenemos una lista de todos los IDs de tickets pendientes del usuario.
-        tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-        tickets_aprobados_count = 0
+        aprobados = omitidos = 0
+        for ticket in TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente'):
+            monto = request.POST.get(f'monto_{ticket.id}', '').strip()
+            if clasificar_ticket(ticket.datos_json) != 'MOVIMIENTO' and not monto:
+                omitidos += 1   # sin monto no hay nada que registrar
+            elif _aprobar(request, ticket.id) is not None:
+                aprobados += 1
+            else:
+                omitidos += 1
 
-        # Iteramos sobre cada ticket pendiente
-        for ticket in tickets_pendientes:
-            # Para cada ticket, construimos los nombres de sus campos de formulario
-            cuenta_key = f'cuenta_origen_{ticket.id}'
-            categoria_key = f'categoria_{ticket.id}'
-            tipo_key = f'tipo_{ticket.id}'
-            cuenta_destino_key = f'cuenta_destino_{ticket.id}'
-
-            # Extraemos los datos de ESE ticket en particular del POST
-            cuenta = request.POST.get(cuenta_key)
-            categoria = request.POST.get(categoria_key)
-            tipo = request.POST.get(tipo_key, 'GASTO')
-            cuenta_destino = request.POST.get(cuenta_destino_key)
-
-            # Si se proporcionaron los datos necesarios, procesamos el ticket
-            if cuenta and categoria and tipo and cuenta_destino:
-                TransactionService.approve_pending_transaction(
-                    ticket_id=ticket.id,
-                    user=request.user,
-                    cuenta=cuenta,
-                    categoria=categoria,
-                    tipo_transaccion=tipo,
-                    cuenta_destino=cuenta_destino
-                )
-                tickets_aprobados_count += 1
-        
-        if tickets_aprobados_count > 0:
-            messages.success(request, f"{tickets_aprobados_count} tickets han sido aprobados correctamente.")
-        else:
+        if aprobados:
+            messages.success(request, f"{aprobados} tickets han sido aprobados correctamente.")
+        elif not omitidos:
             messages.warning(request, "No se seleccionaron tickets para aprobar o faltaron datos.")
+        if omitidos:
+            messages.info(request, f"{omitidos} ticket(s) sin monto se dejaron pendientes: escribe el monto en la fila o recházalos.")
 
     return redirect('revisar_tickets')
 
@@ -100,34 +77,12 @@ def rechazar_todos_tickets(request):
 
 @login_required
 def aprobar_ticket(request, ticket_id):
-    """
-    Aprueba un SOLO ticket. Esta vista ahora es más inteligente y sabe
-    buscar los datos específicos de este ticket dentro del gran formulario.
-    """
+    """Aprueba un SOLO ticket tomando sus campos del formulario grande."""
     if request.method == 'POST':
-        # Construimos los nombres únicos de los campos para este ticket específico
-        cuenta_key = f'cuenta_origen_{ticket_id}'
-        categoria_key = f'categoria_{ticket_id}'
-        tipo_key = f'tipo_{ticket_id}'
-        cuenta_destino_key = f'cuenta_destino_{ticket_id}'
-
-        # Extraemos los valores del POST usando esos nombres únicos
-        cuenta_seleccionada = request.POST.get(cuenta_key)
-        categoria_seleccionada = request.POST.get(categoria_key)
-        tipo_seleccionado = request.POST.get(tipo_key, 'GASTO') # 'GASTO' como valor por defecto
-        cuenta_destino_seleccionada = request.POST.get(cuenta_destino_key)
-
-        # Usamos el servicio para manejar la aprobación del ticket individual
-        TransactionService.approve_pending_transaction(
-            ticket_id=ticket_id,
-            user=request.user,
-            cuenta=cuenta_seleccionada,
-            categoria=categoria_seleccionada,
-            tipo_transaccion=tipo_seleccionado,
-            cuenta_destino=cuenta_destino_seleccionada
-        )
-        messages.success(request, "Ticket aprobado correctamente.")
-        
+        if _aprobar(request, ticket_id) is None:
+            messages.warning(request, "Ese ticket no tiene monto: escríbelo en la fila para poder registrarlo.")
+        else:
+            messages.success(request, "Ticket aprobado correctamente.")
     return redirect('revisar_tickets')
 
 @login_required
@@ -141,9 +96,9 @@ def crear_transacciones(request):
             return redirect('lista_transacciones')
         else:
             logger.error(f"Error de validación en TransaccionesForm: {form.errors.as_json()}")
-    else: 
+    else:
         form = TransaccionesForm(user=request.user)
-    context = {'form': form}
+    context = {'form': form, 'categorias': categorias_para(request.user)}
     return render(request, 'transacciones.html', context)
 
 @login_required
@@ -158,8 +113,15 @@ def lista_transacciones(request):
         propietario=request.user,
         fecha__year=year,
         fecha__month=month
-    ).order_by('-fecha')
-    
+    ).select_related('origen', 'destino').order_by('-fecha', '-id')
+
+    # Filtro por cuenta/tarjeta: un movimiento "es" de la cuenta si sale de ella o entra a ella.
+    cuentas = Cuenta.objects.filter(propietario=request.user).order_by('-es_principal', 'tipo', 'nombre')
+    cuenta_id = request.GET.get('cuenta', '')
+    cuenta_sel = cuentas.filter(id=int(cuenta_id)).first() if cuenta_id.isdigit() else None
+    if cuenta_sel is not None:
+        transacciones_del_mes = transacciones_del_mes.filter(Q(origen=cuenta_sel) | Q(destino=cuenta_sel))
+
     context = {
         'transacciones': transacciones_del_mes,
         'es_usuario_premium': es_usuario_premium, # <-- Añadir la variable al contexto
@@ -167,8 +129,159 @@ def lista_transacciones(request):
         'selected_month': month,
         'years': range(current_year, current_year - 5, -1),
         'months': range(1, 13),
+        'cuentas': cuentas,
+        'cuenta_sel': cuenta_sel,
     }
     return render(request, 'lista_transacciones.html', context)
+
+def _convertible(fila, igual, nombres):
+    """La fila es una transferencia X -> Y (Y es cuenta tuya) y lo que ya tienes es un gasto, o una
+    transferencia a otro lado, que sale de X: en vez de guardar la fila se puede convertir el registrado
+    en transferencia a Y. Pasa cuando el banco de X no dijo a dónde iba el dinero (SPEI con concepto libre)."""
+    if igual is None or fila['tipo'] != 'TRANSFERENCIA' or igual['tipo'] not in ('GASTO', 'TRANSFERENCIA'):
+        return False
+    destino = fila['destino'].strip().upper()
+    return (destino in nombres and igual['cuenta'].strip().upper() == fila['origen'].strip().upper()
+            and igual['destino'].strip().upper() != destino)
+
+
+def _convertir_en_transferencias(usuario, filas, ids, indices):
+    """Convierte los movimientos ya registrados (ids[i]) en transferencias al destino de la fila i.
+    Devuelve {nombre de cuenta destino: cuántos}."""
+    cuentas = {c.nombre.strip().upper(): c for c in Cuenta.objects.filter(propietario=usuario)}
+    convertidos = {}
+    for i in indices:
+        if i >= len(filas) or not ids[i]:
+            continue
+        destino = cuentas.get(filas[i]['destino'].strip().upper())
+        t = registro_transacciones.objects.filter(propietario=usuario, id=ids[i]).first()
+        if destino is None or t is None:
+            continue
+        t.tipo, t.destino, t.categoria, t.cuenta_destino = 'TRANSFERENCIA', destino, 'Transferencia', destino.nombre
+        t.save()
+        convertidos[destino.nombre] = convertidos.get(destino.nombre, 0) + 1
+    return convertidos
+
+
+@require_POST
+@login_required
+def subir_csv(request):
+    """Botón "Subir CSV": lee el archivo (export de Santander o formato propio), busca qué movimientos
+    ya están registrados y muestra la lista para revisar antes de guardar nada."""
+    archivo = request.FILES.get('archivo')
+    if not archivo:
+        messages.error(request, "Elige un archivo .csv.")
+        return redirect('lista_transacciones')
+    try:
+        filas, es_santander = leer_csv(decodificar(archivo.read()))
+    except (ValueError, UnicodeDecodeError) as e:
+        messages.error(request, f"No pude leer {archivo.name}: {e}. No se guardó nada.")
+        return redirect('lista_transacciones')
+    if not filas:
+        messages.warning(request, f"{archivo.name} no trae movimientos.")
+        return redirect('lista_transacciones')
+
+    # Primero lo que tú ya corregiste otras veces (alias); luego, para lo que el archivo no reconoció,
+    # tu historial de movimientos con esa misma descripción.
+    completar_desde_historial(request.user, aplicar_alias(request.user, filas))
+
+    iguales = coincidencias(request.user, filas)
+    nombres = {c.nombre.strip().upper() for c in Cuenta.objects.filter(propietario=request.user)}
+    renglones = [{'i': i, 'fila': f, 'igual': c, 'marcar': c is None, 'ajustable': _convertible(f, c, nombres)}
+                 for i, (f, c) in enumerate(zip(filas, iguales))]
+    request.session['csv_pendiente'] = {'nombre': archivo.name, 'filas': a_sesion(filas),
+                                        'iguales': [c['id'] if c else None for c in iguales]}
+    return render(request, 'subir_csv_revisar.html', {
+        'nombre': archivo.name, 'es_santander': es_santander, 'renglones': renglones,
+        'categorias': categorias_para(request.user),
+        'nuevos': sum(1 for r in renglones if r['igual'] is None),
+        'repetidos': sum(1 for r in renglones if r['igual'] is not None),
+        'por_revisar': sum(1 for f in filas if f['nota']),
+    })
+
+@require_POST
+@login_required
+def confirmar_csv(request):
+    """Guarda solo los renglones que el usuario dejó marcados en la pantalla de revisión."""
+    pendiente = request.session.pop('csv_pendiente', None)
+    if not pendiente:
+        messages.error(request, "No hay un archivo pendiente; vuelve a subirlo.")
+        return redirect('lista_transacciones')
+    filas = de_sesion(pendiente['filas'])
+    elegidas = {int(i) for i in request.POST.getlist('fila') if i.isdigit()}
+    # "Convertir el que ya tienes en transferencia a Y": se corrige el registrado y la fila no se guarda.
+    ajustar = {int(i) for i in request.POST.getlist('ajustar') if i.isdigit()}
+    convertidos = _convertir_en_transferencias(request.user, filas, pendiente.get('iguales') or [], sorted(ajustar))
+    elegidas -= ajustar
+    # Lo que corrigió en pantalla (descripción / categoría) se aplica y se aprende para la próxima vez.
+    aprendidos = set()
+    for i, f in enumerate(filas):
+        desc = request.POST.get(f'desc_{i}', f['descripcion'])
+        cat = request.POST.get(f'cat_{i}', f['categoria'])
+        if i in elegidas and aprender_alias(request.user, f, desc, cat):
+            aprendidos.add(f['banco'].upper())
+        f['descripcion'], f['categoria'] = desc.strip()[:100] or f['descripcion'], cat.strip()[:100] or f['categoria']
+    filas = [f for i, f in enumerate(filas) if i in elegidas]
+    for nombre, n in convertidos.items():
+        messages.success(request, f"{n} movimiento{'s' if n > 1 else ''} que ya tenías ahora "
+                                  f"{'son transferencias' if n > 1 else 'es transferencia'} a {nombre}.")
+    if not filas:
+        if not convertidos:
+            messages.warning(request, "No marcaste ningún movimiento; no se guardó nada.")
+        return redirect('lista_transacciones')
+
+    r = importar(request.user, filas)   # siempre al usuario conectado, diga lo que diga la columna Usuario
+    texto = f"{pendiente['nombre']}: {r['insertados']} movimientos guardados"
+    if r['omitidos']:
+        texto += f", {r['omitidos']} ya estaban"
+    if aprendidos:
+        texto += f". Aprendí {len(aprendidos)} nombre{'s' if len(aprendidos) > 1 else ''} para la próxima vez"
+    messages.success(request, texto + ".")
+    for nombre, n in r['sin_cuenta'].items():
+        messages.warning(request, f"La cuenta '{nombre}' ({n} movimientos) no existe en Mis Tarjetas: quedaron sin cuenta. "
+                                  "Dala de alta y vuelve a subir el archivo, o edítalos uno por uno.")
+    ultima = max(f['fecha'] for f in filas)
+    return redirect(f"{reverse('lista_transacciones')}?year={ultima.year}&month={ultima.month}")
+
+
+@login_required
+def descargar_csv(request):
+    """Botón "Descargar CSV": los movimientos que se ven en la lista (mes y cuenta elegidos; todos los meses
+    con ?todo=1) en el formato propio que acepta "Subir CSV", más una columna Id al final que al subir se ignora."""
+    import csv
+    from django.http import HttpResponse
+    from django.utils.text import slugify
+
+    movimientos = (registro_transacciones.objects.filter(propietario=request.user)
+                   .select_related('origen', 'destino').order_by('fecha', 'id'))
+    nombre = 'movimientos'
+    if request.GET.get('todo') != '1':
+        year = int(request.GET.get('year', datetime.now().year))
+        month = int(request.GET.get('month', datetime.now().month))
+        movimientos = movimientos.filter(fecha__year=year, fecha__month=month)
+        nombre += f'_{year}-{month:02d}'
+    cuenta_id = request.GET.get('cuenta', '')
+    cuenta = Cuenta.objects.filter(propietario=request.user, id=int(cuenta_id)).first() if cuenta_id.isdigit() else None
+    if cuenta is not None:
+        movimientos = movimientos.filter(Q(origen=cuenta) | Q(destino=cuenta))
+        nombre += '_' + slugify(cuenta.nombre)
+
+    respuesta = HttpResponse(content_type='text/csv; charset=utf-8')
+    respuesta['Content-Disposition'] = f'attachment; filename="{nombre}.csv"'
+    respuesta.write('﻿')  # BOM: así Excel abre bien los acentos
+    escritor = csv.writer(respuesta, delimiter=';')
+    escritor.writerow(['Usuario', 'Fecha', 'Descripcion', 'Categoria', 'Monto', 'Tipo',
+                       'Cuenta de origen', 'Cuenta de destino', 'Nota', 'Id'])
+    tipos = {'GASTO': 'gasto', 'INGRESO': 'ingreso'}
+    for t in movimientos:
+        nota = '' if t.tipo in ('GASTO', 'INGRESO', 'TRANSFERENCIA') else t.get_tipo_display()  # pago de mensualidad / a capital
+        if t.monto_interes:
+            nota += f' (interés {t.monto_interes:.2f})'
+        escritor.writerow([request.user.username, t.fecha.strftime('%d/%m/%Y'), t.descripcion, t.categoria,
+                           f'{t.monto:.2f}', tipos.get(t.tipo, 'transferencia'),
+                           t.origen.nombre if t.origen else t.cuenta_origen,
+                           t.destino.nombre if t.destino else t.cuenta_destino, nota, t.id])
+    return respuesta
 
 @login_required
 def editar_transaccion(request, transaccion_id):
@@ -184,45 +297,44 @@ def editar_transaccion(request, transaccion_id):
         # --- CAMBIO 2: Y también lo pasamos aquí ---
         form = TransaccionesForm(instance=transaccion, user=request.user)
     
-    return render(request, 'editar_transaccion.html', {'form': form})
+    return render(request, 'transacciones.html', {'form': form, 'categorias': categorias_para(request.user)})
 
 @login_required
+@require_POST
 def eliminar_transaccion(request, transaccion_id):
-    transaccion = get_object_or_404(registro_transacciones, id=transaccion_id, propietario=request.user)
-    if request.method == 'POST':
-        transaccion.delete()
-        return redirect('lista_transacciones')
-    return render(request, 'confirmar_eliminar_transaccion.html', {'transaccion': transaccion})
+    get_object_or_404(registro_transacciones, id=transaccion_id, propietario=request.user).delete()
+    return redirect('lista_transacciones')
 
 @login_required
 def revisar_tickets(request):
+    """
+    Revisión de tickets "en un clic": cada fila llega pre-llenada con la mejor
+    sugerencia (IA -> historial del usuario -> cuenta principal).
+    """
     tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-    # --- NUEVO: Obtenemos las cuentas y deudas del usuario ---
-    cuentas_usuario = Cuenta.objects.filter(propietario=request.user)
-    deudas_usuario = Deuda.objects.filter(propietario=request.user)
-    
-    # Formateamos la fecha de manera segura para mostrarla en el template
+    sugeridor = Sugeridor(request.user)
+
     for ticket in tickets_pendientes:
         fecha_cruda = ticket.datos_json.get("fecha") or ticket.datos_json.get("fecha_emision")
         fecha_obj = parse_date_safely(fecha_cruda)
         ticket.fecha_formateada = fecha_obj.strftime("%d/%m/%Y")
-    
+        ticket.sug = sugeridor.sugerir(ticket.datos_json)
+        ticket.clase = clasificar_ticket(ticket.datos_json)   # MOVIMIENTO o SIN_MONTO (monto editable)
+        ticket.monto = monto_de_ticket(ticket.datos_json)
+
     return render(request, 'revisar_tickets.html', {
         'tickets': tickets_pendientes,
-        'cuentas_usuario': cuentas_usuario,
-        'deudas_usuario': deudas_usuario
+        'cuentas_usuario': sugeridor.cuentas,
+        'categorias': categorias_para(request.user),
+        'cuenta_principal': sugeridor.principal,
+        'tiene_cuenta_ahorro': any(c.tipo == 'AHORRO' for c in sugeridor.cuentas),
     })
 
 @login_required
 def rechazar_ticket(request, ticket_id):
-    ticket = TransaccionPendiente.objects.get(id=ticket_id, propietario=request.user)
-    ticket.estado = 'rechazada'
-    ticket.save()
+    TransaccionPendiente.objects.filter(id=ticket_id, propietario=request.user).update(estado='rechazada')
     return redirect('revisar_tickets')
 
-'''
-Vista para procesar automáticamente los tickets de Drive.
-'''
 @login_required
 def iniciar_procesamiento_drive(request):
     """
@@ -237,13 +349,18 @@ def iniciar_procesamiento_drive(request):
         # Captura errores generales durante el inicio de la tarea
         return JsonResponse({"error": f"No se pudo iniciar la tarea: {str(e)}"}, status=400)
 
-'''
-vista para los Dashboards y gráficas de transacciones 
-y ganancias mensuales, e inversiones.
-'''
 @login_required
 def vista_procesamiento_automatico(request):
-    return render(request, 'procesamiento_automatico.html')
+    return render(request, 'procesamiento.html', {
+        'titulo': 'Procesamiento Automático',
+        'subtitulo': 'Sincroniza tus tickets desde Google Drive',
+        'icono': 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
+        'descripcion': 'Buscaremos nuevos archivos en tu carpeta designada.',
+        'start_url': reverse('procesar_drive'),
+        'redirect_url': reverse('revisar_tickets'),
+        'back_url': reverse('lista_transacciones'),
+        'back_text': 'Volver a Transacciones',
+    })
 
 @login_required
 def get_initial_task_result(request, task_id):
@@ -272,7 +389,9 @@ def get_group_status(request, group_id):
              return JsonResponse({"status": "PENDING"})
 
         if group_result.ready():
-            return JsonResponse({"status": "COMPLETED"})
+            # Terminó, pero no todo fue éxito necesariamente: la pantalla avisa cuántos fallaron.
+            fallidos = sum(1 for r in group_result.results if r.failed())
+            return JsonResponse({"status": "COMPLETED", "total": len(group_result), "fallidos": fallidos})
         else:
             total = len(group_result)
             completed = group_result.completed_count()
@@ -312,6 +431,7 @@ def cancelar_procesamiento(request):
             if group_result:
                 group_result.revoke()
                 logger.info(f"Grupo de tareas revocado: {group_id}")
+            olvidar_lote(group_id)  # el siguiente clic lanza un lote nuevo en vez de pegarse a este
 
         # Rechazar los registros que pudieron haberse creado parcialmente antes de cancelar
         if cancel_type == 'tickets':
@@ -321,13 +441,9 @@ def cancelar_procesamiento(request):
         elif cancel_type == 'deudas':
             AmortizacionPendiente.objects.filter(deuda__propietario=request.user, estado='pendiente').update(estado='rechazada')
         elif cancel_type == 'facturas':
-            Factura.objects.filter(usuario=request.user, estado='pendiente').update(estado='rechazada')
+            Factura.objects.filter(propietario=request.user, estado='pendiente').update(estado='rechazada')
 
         return JsonResponse({'status': 'success', 'message': 'Procesamiento cancelado exitosamente.'})
     except Exception as e:
         logger.error(f"Error al cancelar procesamiento: {e}")
         return JsonResponse({'status': 'error', 'message': 'Ocurrió un error inesperado al cancelar'}, status=500)
-     
-'''
-Mercado Pago y suscripciones
-'''

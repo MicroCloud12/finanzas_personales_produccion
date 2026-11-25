@@ -1,14 +1,21 @@
 import time
-import json
 import logging
+from datetime import datetime, date, timedelta
 from PIL import Image
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
+from dateutil.parser import parse as dateutil_parse, ParserError
+from django.db.models import F
 from .utils import parse_date_safely
 from celery import shared_task, group
+from celery.exceptions import Retry
+from celery.result import GroupResult
+from google.api_core.exceptions import ResourceExhausted
+from django.conf import settings
 from django.contrib.auth.models import User
 from .services import GoogleDriveService, StockPriceService, TransactionService, InvestmentService, get_gemini_service, ExchangeRateService, MistralOCRService, BillingService
-from .models import Deuda, AmortizacionPendiente, PagoAmortizacion, TiendaFacturacion, Factura, HistorialReciboServicio, Presupuesto
+from .models import (Deuda, AmortizacionPendiente, Factura, HistorialReciboServicio, Presupuesto,
+                     PortfolioHistory, inversiones, Cuenta, registro_transacciones)
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +42,60 @@ def _get_files_from_drive_folder(user, folder_name: str, mimetypes=None):
         mimetypes = ['image/jpeg', 'image/png', 'application/pdf']
     return gdrive_service.list_files_in_folder(folder_name=folder_name, mimetypes=mimetypes)
 
+def _clave_lote(gid):
+    return f"lote-vence-{gid}"
+
+
+def _lote_vigente(app, gid):
+    """¿El lote guardado bajo `gid` sigue dentro de su plazo? Sin marca (expiró, el worker murió a medio
+    lote, o el backend no la soporta) se da por perdido y se vuelve a lanzar: un grupo cuyas subtareas
+    nunca terminan jamás se reporta "listo", y antes bloqueaba todos los clics siguientes del usuario."""
+    try:
+        marca = app.backend.get(_clave_lote(gid))
+        return marca is not None and float(marca) > time.time()
+    except Exception:
+        return False
+
+
+def _marcar_lote(app, gid, n_archivos):
+    """Plazo del lote: un minuto por archivo (la espera entre archivos + la lectura de la IA), mínimo 30 min."""
+    try:
+        app.backend.set(_clave_lote(gid), str(time.time() + max(1800, n_archivos * 60)).encode())
+    except Exception:
+        logger.warning("No pude guardar el plazo del lote %s; el siguiente clic lo relanzará.", gid)
+
+
+def olvidar_lote(gid):
+    """Al cancelar: borra la marca para que el siguiente clic lance un lote nuevo."""
+    from config.celery import app
+    try:
+        app.backend.delete(_clave_lote(gid))
+    except Exception:
+        pass
+
+
+# Segundos entre un archivo y el siguiente al mandarlos a la IA. 5 s = 12 por minuto, dentro del límite
+# del plan gratuito de Gemini (15/min); con plan de pago puede bajarse en settings (IA_SEGUNDOS_ENTRE_ARCHIVOS).
+SEGUNDOS_ENTRE_ARCHIVOS = getattr(settings, 'IA_SEGUNDOS_ENTRE_ARCHIVOS', 5)
+
+
+def _lanzar_grupo(tarea, archivos, *args):
+    """Una subtarea por archivo, espaciadas SEGUNDOS_ENTRE_ARCHIVOS (límite de la API); devuelve el id del
+    grupo para el progreso. El id del grupo es fijo por tarea y usuario (args[0]): si ese lote sigue
+    corriendo (y dentro de su plazo), el clic se pega al lote en curso en vez de volver a mandar los
+    mismos archivos a la IA."""
+    gid = f"{tarea.name}-{args[0]}"
+    en_curso = GroupResult.restore(gid)
+    if en_curso is not None and not en_curso.ready() and _lote_vigente(tarea.app, gid):
+        return {'status': 'STARTED', 'task_group_id': gid, 'total_tasks': len(en_curso)}
+    job = group(tarea.s(*args, item['id'], item['name'], item['mimeType']).set(countdown=i * SEGUNDOS_ENTRE_ARCHIVOS)
+                for i, item in enumerate(archivos))
+    result_group = job.apply_async(task_id=gid)  # en un group, task_id se usa como id del grupo
+    result_group.save()
+    _marcar_lote(tarea.app, gid, len(archivos))
+    return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(archivos)}
+
 def _build_user_context(user) -> str:
-    from .models import Cuenta, registro_transacciones
     cuentas = Cuenta.objects.filter(propietario=user)
     lista_cuentas_str = ", ".join([f"'{c.nombre}' (Terminación: {c.terminacion or 'N/A'})" for c in cuentas])
     categorias = list(registro_transacciones.objects.filter(propietario=user).values_list('categoria', flat=True).distinct()[:20])
@@ -61,10 +120,16 @@ def process_single_ticket(self, user_id: int, file_id: str, file_name: str, mime
             extracted_data = extracted_data[0] if extracted_data else {}
 
         if extracted_data.get("error"):
-             return {'status': 'FAILURE', 'file_name': file_name, 'error': extracted_data.get('raw_response', 'Error desconocido')}
+            if extracted_data.get("transitorio") and self.request.retries < self.max_retries:
+                # La API estuvo lenta/saturada: lo volvemos a intentar en un minuto en vez de darlo por perdido.
+                raise self.retry(countdown=60)
+            return {'status': 'FAILURE', 'file_name': file_name,
+                    'error': extracted_data.get('raw_response') or extracted_data.get('error') or 'Error desconocido'}
 
         TransactionService().create_pending_transaction(user, extracted_data)
         return {'status': 'SUCCESS', 'file_name': file_name}
+    except Retry:
+        raise
     except Exception as e:
         self.retry(exc=e)
         return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
@@ -79,11 +144,7 @@ def process_drive_tickets(user_id: int):
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
 
-        job = group(process_single_ticket.s(user.id, item['id'], item['name'], item['mimeType']) for item in files_to_process)
-        result_group = job.apply_async()
-        result_group.save()
-
-        return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(files_to_process)}
+        return _lanzar_grupo(process_single_ticket, files_to_process, user.id)
     except Exception as e:
         return {'status': 'ERROR', 'message': str(e)}
 
@@ -167,16 +228,12 @@ def process_drive_investments(user_id):
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
 
-        job = group(process_single_inversion.s(user.id, item['id'], item['name'], item['mimeType']) for item in files_to_process)
-        result_group = job.apply_async()
-        result_group.save()
-
-        return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(files_to_process)}
+        return _lanzar_grupo(process_single_inversion, files_to_process, user.id)
     except Exception as e:
         return {'status': 'ERROR', 'message': str(e)}
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def process_single_amortization(self, user_id: int, file_id: str, file_name: str, mime_type: str, deuda_id: int):
+def process_single_amortization(self, user_id: int, deuda_id: int, file_id: str, file_name: str, mime_type: str):
     """Procesa un único archivo de tabla de amortización."""
     try:
         if mime_type not in ('image/jpeg', 'image/png', 'application/pdf'):
@@ -208,11 +265,6 @@ def process_single_amortization(self, user_id: int, file_id: str, file_name: str
         self.retry(exc=e)
         return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
 
-def _filter_files_by_name(files, target_name: str) -> list:
-    """Filtra archivos cuyo nombre contenga el texto objetivo (case-insensitive)."""
-    target = target_name.lower()
-    return [f for f in files if target in f['name'].lower()]
-
 @shared_task
 def process_drive_amortizations(user_id: int, deuda_id: int):
     """Busca tablas de amortización en Drive que coincidan con la deuda."""
@@ -228,16 +280,12 @@ def process_drive_amortizations(user_id: int, deuda_id: int):
         if not todos_los_archivos:
             return {'status': 'NO_FILES', 'message': 'No se encontraron archivos en la carpeta.'}
 
-        files_to_process = _filter_files_by_name(todos_los_archivos, deuda.nombre)
+        files_to_process = [f for f in todos_los_archivos if deuda.nombre.lower() in f['name'].lower()]
 
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': f"No se encontraron archivos que coincidan con el nombre '{deuda.nombre}'."}
 
-        job = group(process_single_amortization.s(user.id, item['id'], item['name'], item['mimeType'], deuda_id) for item in files_to_process)
-        result_group = job.apply_async()
-        result_group.save()
-
-        return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(files_to_process)}
+        return _lanzar_grupo(process_single_amortization, files_to_process, user.id, deuda_id)
     except Exception as e:
         return {'status': 'ERROR', 'message': str(e)}
 
@@ -262,8 +310,6 @@ def _normalize_store_name(datos_extraidos: dict) -> str:
         
     logger.info(f"Tienda nueva detectada: {nombre_ia}")
     return nombre_ia
-
-from google.api_core.exceptions import ResourceExhausted
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def process_single_invoice(self, user_id: int, file_id: str, file_name: str, mime_type: str):
@@ -336,24 +382,32 @@ def process_drive_for_invoices(user_id: int):
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No se encontraron nuevos tickets.'}
 
-        job = group(process_single_invoice.s(user.id, item['id'], item['name'], item['mimeType']) for item in files_to_process)
-        result_group = job.apply_async()
-        result_group.save()
-
-        return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(files_to_process)}
+        return _lanzar_grupo(process_single_invoice, files_to_process, user.id)
 
     except Exception as e:
         return {'status': 'ERROR', 'message': str(e)}
 
-def _parse_utility_bill_data(datos: dict) -> tuple:
-    from datetime import datetime
-    fecha_emision = datos.get('fecha_emision')
-    fecha_obj = None
-    if fecha_emision:
+def _parse_optional_date(valor) -> date | None:
+    if not valor or not isinstance(valor, str):
+        return None
+    texto = valor.strip()
+    if not texto or texto.lower() == 'null':
+        return None
+    try:
+        return date.fromisoformat(texto[:10])
+    except ValueError:
         try:
-            fecha_obj = datetime.strptime(fecha_emision, '%Y-%m-%d').date()
-        except ValueError:
-            pass
+            return dateutil_parse(texto, dayfirst=True).date()
+        except (ParserError, ValueError, OverflowError):
+            return None
+
+
+def _parse_utility_bill_data(datos: dict) -> tuple:
+    fecha_obj = _parse_optional_date(datos.get('fecha_emision'))
+    if fecha_obj is None:
+        limite = _parse_optional_date(datos.get('fecha_limite_pago'))
+        if limite is not None:
+            fecha_obj = limite - timedelta(days=12)
 
     try:
         monto = float(datos.get('monto_total', 0))
@@ -397,7 +451,7 @@ def process_single_utility_bill(self, user_id: int, presupuesto_id: int, file_id
         # ponytail: gana el de fecha_emision más nueva, no el último del lote.
         ultimo = (HistorialReciboServicio.objects
                   .filter(presupuesto=presupuesto)
-                  .order_by('-fecha_emision', '-id').first())
+                  .order_by(F('fecha_emision').desc(nulls_last=True), '-id').first())
         if ultimo:
             presupuesto.monto_real = ultimo.monto_total
             presupuesto.save(update_fields=['monto_real'])
@@ -407,11 +461,12 @@ def process_single_utility_bill(self, user_id: int, presupuesto_id: int, file_id
         self.retry(exc=e)
         return {'status': 'FAILURE', 'file_name': file_name, 'error': str(e)}
 
-def _get_utility_bill_folder_files(drive_service, categoria_lower: str) -> list:
+def carpeta_recibos(drive_service, categoria_lower: str) -> list:
+    """Archivos de Drive en Recibos/<categoria>. ValueError si falta alguna de las carpetas."""
     query_recibos = "mimeType='application/vnd.google-apps.folder' and trashed=false and (name='recibos' or name='Recibos' or name='RECIBOS')"
     carpetas = drive_service.service.files().list(q=query_recibos, spaces='drive', fields='files(id)').execute().get('files', [])
     if not carpetas:
-        raise ValueError('Carpeta Recibos no encontrada.')
+        raise ValueError("No se encontró la carpeta 'Recibos' en tu Google Drive. Asegúrate de crearla.")
         
     carpeta_id = carpetas[0]['id']
     cat_upper, cat_title = categoria_lower.upper(), categoria_lower.capitalize()
@@ -419,7 +474,7 @@ def _get_utility_bill_folder_files(drive_service, categoria_lower: str) -> list:
     
     subcarpetas = drive_service.service.files().list(q=query_sub, spaces='drive', fields='files(id)').execute().get('files', [])
     if not subcarpetas:
-        raise ValueError(f'Subcarpeta {categoria_lower} no encontrada.')
+        raise ValueError(f"Se encontró la carpeta 'Recibos', pero no la subcarpeta '{categoria_lower}'. Asegúrate de crearla.")
         
     return drive_service.service.files().list(
         q=f"'{subcarpetas[0]['id']}' in parents and trashed=false",
@@ -434,7 +489,7 @@ def process_drive_utility_bills(user_id: int, presupuesto_id: int, categoria_low
         drive_service = GoogleDriveService(user)
         
         try:
-            archivos = _get_utility_bill_folder_files(drive_service, categoria_lower)
+            archivos = carpeta_recibos(drive_service, categoria_lower)
         except ValueError as ve:
             return {'status': 'NO_FILES', 'message': str(ve)}
             
@@ -450,11 +505,41 @@ def process_drive_utility_bills(user_id: int, presupuesto_id: int, categoria_low
         if not files_to_process:
             return {'status': 'NO_FILES', 'message': 'No hay recibos nuevos por procesar.'}
             
-        job = group(process_single_utility_bill.s(user.id, presupuesto_id, item['id'], item['name'], item['mimeType']) for item in files_to_process)
-        result_group = job.apply_async()
-        result_group.save()
-        
-        return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(files_to_process)}
-        
+        return _lanzar_grupo(process_single_utility_bill, files_to_process, user.id, presupuesto_id)
     except Exception as e:
         return {'status': 'ERROR', 'message': str(e)}
+
+@shared_task
+def update_user_portfolio_history(user_id: int):
+    """Calcula y almacena el historial diario del portafolio para un usuario específico."""
+    try:
+        user = User.objects.get(id=user_id)
+        
+        # 1. Precios actuales primero, para que la tabla coincida con la gráfica
+        price_service = StockPriceService()
+        consultados = set()
+        for inv in inversiones.objects.filter(propietario=user).exclude(emisora_ticker__isnull=True).exclude(emisora_ticker=''):
+            new_price = price_service.get_current_price(inv.emisora_ticker)
+            if new_price is None:
+                continue
+            inv.precio_actual_titulo = Decimal(str(new_price))
+            inv.save()
+            if inv.emisora_ticker not in consultados:  # los repetidos salen de la caché
+                consultados.add(inv.emisora_ticker)
+                time.sleep(5)  # límite del plan gratuito de la API
+
+        # 2. Historial diario
+        registros = guardar_historial_portafolio(user)
+        if not registros:
+            return {'status': 'NO_DATA', 'message': f'No hay inversiones para el usuario {user.username}.'}
+        return {'status': 'SUCCESS', 'records': registros}
+    except Exception as e:
+        logger.error(f"Error actualizando historial de portafolio para user {user_id}: {e}")
+        return {'status': 'ERROR', 'message': str(e)}
+
+def guardar_historial_portafolio(user) -> int:
+    """Recalcula y reemplaza el historial diario del portafolio. Devuelve cuántos días guardó."""
+    historial = InvestmentService.calculate_daily_portfolio_history(user)
+    PortfolioHistory.objects.filter(usuario=user).delete()
+    PortfolioHistory.objects.bulk_create(PortfolioHistory(usuario=user, **dia) for dia in historial)
+    return len(historial)

@@ -9,14 +9,13 @@ from datetime import datetime, timedelta
 from django.http import HttpResponse, JsonResponse
 from django.core.mail import send_mail
 from django.conf import settings
-from django.db.models import Sum, Q, Count
+from django.db.models import Sum, Q
 from django.contrib.auth.models import User
 from django.utils.dateformat import DateFormat
 from django.db.models.functions import TruncMonth
 from celery.result import AsyncResult, GroupResult
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from .utils import parse_date_safely, generar_tabla_amortizacion
 from django.shortcuts import render, redirect, get_object_or_404
@@ -33,76 +32,14 @@ from .services import TransactionService, MercadoPagoService, StockPriceService,
 from .models import (
     registro_transacciones, Suscripcion, TransaccionPendiente, 
     inversiones, GananciaMensual, PendingInvestment, Deuda, 
-    PagoAmortizacion, AmortizacionPendiente, Factura, PortfolioHistory,
-    GoogleCredentials
+    PagoAmortizacion, AmortizacionPendiente, Factura
 )
 from django.http import JsonResponse
 from .models import TiendaFacturacion # Asegúrate de tener los modelos importados
-from .models import Cuenta
-from .forms import CuentaForm
+
 
 
 logger = logging.getLogger(__name__)
-
-
-@login_required
-def gestionar_cuentas(request):
-    cuentas = Cuenta.objects.filter(propietario=request.user)
-    
-    if request.method == 'POST':
-        form = CuentaForm(request.POST)
-        if form.is_valid():
-            cuenta = form.save(commit=False)
-            cuenta.propietario = request.user
-            cuenta.save()
-            
-            if cuenta.tipo == 'CREDITO':
-                Deuda.objects.get_or_create(
-                    propietario=request.user,
-                    nombre=cuenta.nombre,
-                    defaults={
-                        'tipo_deuda': 'TARJETA_CREDITO',
-                        'monto_total': Decimal('0.00'),
-                        'tasa_interes': Decimal('0.00'),
-                        'plazo_meses': 1,
-                        'requiere_configuracion_adicional': True
-                    }
-                )
-
-            messages.success(request, f"La cuenta '{cuenta.nombre}' se ha registrado exitosamente.")
-            return redirect('dashboard') # Una vez que guardan, los dejamos ir al dashboard
-    else:
-        form = CuentaForm()
-
-    context = {
-        'form': form,
-        'cuentas': cuentas,
-        # Si no tiene cuentas, le mostramos un mensaje diferente en el HTML
-        'es_onboarding': not cuentas.exists() 
-    }
-    return render(request, 'gestionar_cuentas.html', context)
-
-@login_required
-def editar_cuenta(request, cuenta_id):
-    cuenta = get_object_or_404(Cuenta, id=cuenta_id, propietario=request.user)
-    if request.method == 'POST':
-        form = CuentaForm(request.POST, instance=cuenta)
-        if form.is_valid():
-            form.save()
-            messages.success(request, f"La cuenta '{cuenta.nombre}' ha sido actualizada.")
-            return redirect('gestionar_cuentas')
-    else:
-        form = CuentaForm(instance=cuenta)
-    return render(request, 'editar_cuenta.html', {'form': form, 'cuenta': cuenta})
-
-@login_required
-@require_POST
-def eliminar_cuenta(request, cuenta_id):
-    cuenta = get_object_or_404(Cuenta, id=cuenta_id, propietario=request.user)
-    nombre = cuenta.nombre
-    cuenta.delete()
-    messages.success(request, f"La cuenta '{nombre}' ha sido eliminada correctamente.")
-    return redirect('gestionar_cuentas')
 
 def enviar_pregunta(request):
     if request.method == "POST":
@@ -236,6 +173,8 @@ def crear_transacciones(request):
             logger.error(f"Error de validación en TransaccionesForm: {form.errors.as_json()}")
     else: 
         form = TransaccionesForm(user=request.user)
+        logger.debug(f"Campo Deuda Asociada renderizado como: {form['deuda_asociada']}")
+
     context = {'form': form}
     return render(request, 'transacciones.html', context)
 
@@ -290,21 +229,7 @@ def eliminar_transaccion(request, transaccion_id):
 @login_required
 def revisar_tickets(request):
     tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-    # --- NUEVO: Obtenemos las cuentas y deudas del usuario ---
-    cuentas_usuario = Cuenta.objects.filter(propietario=request.user)
-    deudas_usuario = Deuda.objects.filter(propietario=request.user)
-    
-    # Formateamos la fecha de manera segura para mostrarla en el template
-    for ticket in tickets_pendientes:
-        fecha_cruda = ticket.datos_json.get("fecha") or ticket.datos_json.get("fecha_emision")
-        fecha_obj = parse_date_safely(fecha_cruda)
-        ticket.fecha_formateada = fecha_obj.strftime("%d/%m/%Y")
-    
-    return render(request, 'revisar_tickets.html', {
-        'tickets': tickets_pendientes,
-        'cuentas_usuario': cuentas_usuario,
-        'deudas_usuario': deudas_usuario
-    })
+    return render(request, 'revisar_tickets.html', {'tickets': tickets_pendientes})
 
 @login_required
 def rechazar_ticket(request, ticket_id):
@@ -336,253 +261,93 @@ y ganancias mensuales, e inversiones.
 '''
 @login_required
 def vista_dashboard(request):
-    # --- ONBOARDING OBLIGATORIO ---
-    # Si el usuario no tiene ninguna cuenta registrada, lo forzamos a crear una
-    from .models import Cuenta
-    if not Cuenta.objects.filter(propietario=request.user).exists():
-        messages.info(request, "¡Bienvenido! Para poder analizar tus tickets y automatizar tus gastos, primero necesitamos que registres al menos una cuenta o tarjeta.")
-        return redirect('gestionar_cuentas')
-    # ------------------------------
+    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
+    # --- LÓGICA PARA LA GRÁFICA DE LÍNEAS ---
+    # Obtenemos todas las compras de inversiones del usuario, ordenadas por fecha
+    compras = inversiones.objects.filter(propietario=request.user).order_by('fecha_compra')
 
-    # Definimos fechas al inicio para usarlas en todo el dashboard
+    chart_labels = []
+    chart_data = []
+    capital_acumulado = Decimal('0.0')
+
+    # Agrupamos las compras por día y calculamos el capital acumulado
+    compras_por_dia = {}
+    for compra in compras:
+        fecha_str = compra.fecha_compra.strftime('%Y-%m-%d')
+        if fecha_str not in compras_por_dia:
+            compras_por_dia[fecha_str] = Decimal('0.0')
+        compras_por_dia[fecha_str] += compra.costo_total_adquisicion
+
+    # Ordenamos las fechas y construimos los datos del gráfico
+    fechas_ordenadas = sorted(compras_por_dia.keys())
+    for fecha in fechas_ordenadas:
+        capital_acumulado += compras_por_dia[fecha]
+        chart_labels.append(fecha)
+        chart_data.append(str(capital_acumulado))
+    # ----------------------------------------------
+    # Verificamos si la suscripción está activa con nuestro método del modelo.
+    es_usuario_premium = suscripcion.is_active()
     current_year = datetime.now().year
     current_month = datetime.now().month
     year = int(request.GET.get('year', current_year))
     month = int(request.GET.get('month', current_month))
+    transacciones = registro_transacciones.objects.filter(
+        propietario=request.user, 
+        fecha__year=year, 
+        fecha__month=month
+    )
 
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    
-    # --- LÓGICA PARA LA GRÁFICA DE AHORRO (SAVINGS GROWTH) ---
-    # Calculamos el ahorro acumulado mes a mes para el año seleccionado
-    savings_qs = registro_transacciones.objects.filter(
-        propietario=request.user,
-        fecha__year=year
-    ).filter(
-        # 1. Todo lo que esté categorizado explícitamente como Ahorro (menos Gastos)
-        (Q(categoria__iexact='Ahorro') & ~Q(tipo__in=['GASTO', 'PAGO_MENSUALIDAD', 'PAGO_CAPITAL'])) |
-        # 2. Transferencias directas a la Cuenta Ahorro
-        Q(tipo__iexact='TRANSFERENCIA', cuenta_destino__iexact='Cuenta Ahorro') | 
-        # 3. Ingresos que entraron directo a Cuenta Ahorro 
-        Q(tipo__iexact='INGRESO', cuenta_origen__iexact='Cuenta Ahorro')
-    ).annotate(mes=TruncMonth('fecha')).values('mes').annotate(total=Sum('monto')).order_by('mes')
+     # --- LA MAGIA DE LA OPTIMIZACIÓN ---
+    # Hacemos UNA SOLA CONSULTA para obtener todos los totales
+    agregados = transacciones.aggregate(
+        ingresos_efectivo=Sum('monto', filter=Q(tipo='INGRESO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        gastos_efectivo=Sum('monto', filter=Q(tipo='GASTO') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        ahorro_total=Sum('monto', filter=Q(tipo='TRANSFERENCIA', categoria='Ahorro', cuenta_origen='Efectivo Quincena', cuenta_destino='Cuenta Ahorro')),
+        transferencias_efectivo=Sum('monto', filter=Q(tipo='TRANSFERENCIA') & ~Q(categoria='Ahorro') & Q(cuenta_origen='Efectivo Quincena')),
+        gastos_ahorro=Sum('monto', filter=Q(tipo='GASTO', cuenta_origen='Cuenta Ahorro')),
+        ingresos_ahorro=Sum('monto', filter=Q(tipo='INGRESO', cuenta_origen='Cuenta Ahorro')),
+    )
 
-    savings_labels = []
-    savings_data = []
-    ahorro_acumulado = Decimal('0.0')
-    
-    # Mapa de ahorro por mes
-    ahorro_por_mes = {s['mes'].strftime('%Y-%m'): s['total'] for s in savings_qs}
-    
-    # Generamos los meses para todo el año
-    meses_es = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-    for m in range(1, 13):
-        try:
-            mes_fecha = datetime(year, m, 1)
-        except ValueError:
-             # Caso borde
-            continue
-            
-        mes_key = mes_fecha.strftime('%Y-%m')
-        
-        monto_mes = ahorro_por_mes.get(mes_key, Decimal('0.0'))
-        ahorro_acumulado += monto_mes
-        
-        savings_labels.append(meses_es[mes_fecha.month]) # Nombre del mes
-        savings_data.append(str(ahorro_acumulado))
-        
-    chart_labels = savings_labels
-    chart_data = savings_data
-    # ----------------------------------------------
-    
-    # Verificamos si la suscripción está activa con nuestro método del modelo.
-    es_usuario_premium = suscripcion.is_active()
-
-    # --- LA MAGIA DE LA OPTIMIZACIÓN (VIA MANAGER) ---
-    bal = registro_transacciones.objects.balance_dashboard(request.user, year, month)
-    
-    # Hacemos UNA SOLA CONSULTA para las inversiones
+    # Igualmente, hacemos UNA SOLA CONSULTA para las inversiones
     agregados_inversion = inversiones.objects.filter(propietario=request.user).aggregate(
         total_inicial=Sum('costo_total_adquisicion'),
         total_actual=Sum('valor_actual_mercado')
     )
     # --- FIN DE LA OPTIMIZACIÓN ---
 
-    # Asignamos valores desde el diccionario 'bal'
-    ingresos = bal['ingresos_efectivo']
-    gastos = bal['gastos_efectivo']
-    ahorro_total = bal['ahorro_total']
-    transferencias = bal['transferencias_efectivo']
-    gastos_ahorro = bal['gastos_ahorro']
-    ingresos_ahorro = bal['ingresos_ahorro']
+    # El resto de tu lógica para calcular y asignar valores es correcta y se mantiene
+    ingresos = agregados.get('ingresos_efectivo') or Decimal('0.00')
+    gastos = agregados.get('gastos_efectivo') or Decimal('0.00')
+    ahorro_total = agregados.get('ahorro_total') or Decimal('0.00')
+    transferencias = agregados.get('transferencias_efectivo') or Decimal('0.00')
+    gastos_ahorro = agregados.get('gastos_ahorro') or Decimal('0.00')
+    ingresos_ahorro = agregados.get('ingresos_ahorro') or Decimal('0.00')
 
     inversion_inicial_usd = agregados_inversion.get('total_inicial') or Decimal('0.00')
     inversion_actual = agregados_inversion.get('total_actual') or Decimal('0.00')
 
     balance = ingresos - gastos - gastos_ahorro
     disponible_banco = ingresos - gastos - transferencias - ahorro_total
-    
-    ahorro = ahorro_acumulado
-    
-    # --- Cálculo de Transacciones de Ahorro del Mes ---
-    ahorros_tx_count = registro_transacciones.objects.filter(
-        propietario=request.user,
-        fecha__year=year,
-        fecha__month=month
-    ).filter(
-        (Q(categoria__iexact='Ahorro') & ~Q(tipo__in=['GASTO', 'PAGO_MENSUALIDAD', 'PAGO_CAPITAL'])) |
-        Q(tipo__iexact='TRANSFERENCIA', cuenta_destino__iexact='Cuenta Ahorro') | 
-        Q(tipo__iexact='INGRESO', cuenta_origen__iexact='Cuenta Ahorro')
-    ).count()
-
-    # --- Cálculo de Deuda Total ---
-    todas_deudas = Deuda.objects.filter(propietario=request.user)
-    deuda_total = Decimal('0.00')
-    
-    num_tarjetas = todas_deudas.filter(tipo_deuda='TARJETA_CREDITO').count()
-    num_prestamos = todas_deudas.filter(tipo_deuda='PRESTAMO').count()
-    
-    for d in todas_deudas:
-        if d.tipo_deuda == 'TARJETA_CREDITO':
-            # Para TC: Deuda Real = Límite (monto_total) - Disponible (saldo_pendiente)
-            deuda_real = d.monto_total - d.saldo_pendiente
-            if deuda_real > 0:
-                deuda_total += deuda_real
-        else:
-            # Para Préstamos: Deuda Real = Saldo Pendiente
-            deuda_total += d.saldo_pendiente
-            
-    # --- Pago total a deudas este mes ---
-    pagos_prestamos = registro_transacciones.objects.filter(
-        propietario=request.user,
-        fecha__year=year,
-        fecha__month=month,
-        tipo__in=['PAGO_MENSUALIDAD', 'PAGO_CAPITAL']
-    ).aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    
-    nombres_tarjetas = todas_deudas.filter(tipo_deuda='TARJETA_CREDITO').values_list('nombre', flat=True)
-    pagos_tc = registro_transacciones.objects.filter(
-        propietario=request.user,
-        fecha__year=year,
-        fecha__month=month,
-        tipo='TRANSFERENCIA',
-        cuenta_destino__in=nombres_tarjetas
-    ).aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    
-    total_pagado_deudas = pagos_prestamos + pagos_tc
-    # --- Listado de Tarjetas para el Widget ---
-    las_cuentas = Cuenta.objects.filter(propietario=request.user, tipo='DEBITO').order_by('-es_principal', 'id')
-    tarjetas_list = []
-    for c in las_cuentas:
-        term = c.terminacion.strip() if c.terminacion else ""
-        if len(term) > 4:
-            term = term[-4:]
-        elif len(term) < 4 and len(term) > 0:
-            term = term.zfill(4)
-        else:
-            term = term or "****"
-            
-        tarjetas_list.append({
-            'id': c.id,
-            'nombre': c.nombre,
-            'terminacion': term,
-            'tipo': c.tipo
-        })
-        
-    import json
-    tarjetas_data_json = json.dumps(tarjetas_list)
+    ahorro = ahorro_total - gastos_ahorro + ingresos_ahorro + transferencias
 
     context = {
         'ingresos': ingresos,
         'gastos': gastos,
         'balance': balance,
-        'transferencias': transferencias,
-        'disponible_banco': disponible_banco,
+        'transferencias':transferencias,
+        'disponible_banco':disponible_banco,
         'ahorro': ahorro,
-        'ahorros_tx_count': ahorros_tx_count,
         'selected_year': year,
         'selected_month': month,
         'years': range(current_year, current_year - 5, -1),
         'months': range(1, 13),
         'es_usuario_premium': es_usuario_premium,
-        'deuda_total': deuda_total,
-        'num_tarjetas': num_tarjetas,
-        'num_prestamos': num_prestamos,
-        'total_pagado_deudas': total_pagado_deudas,
-        'tarjetas_data_json': tarjetas_data_json,
-        'tarjetas_list': tarjetas_list,
-        'investment_chart_labels': chart_labels,
-        'investment_chart_data': chart_data,
+        'inversion_inicial': inversion_inicial_usd,
+        'inversion_actual': inversion_actual,
+        'investment_chart_labels': json.dumps(chart_labels),
+        'investment_chart_data': json.dumps(chart_data),
     }
     return render(request, 'dashboard.html', context)
-
-@login_required
-def vista_portafolio(request):
-    """
-    Vista dedicada para el Portafolio de Inversiones.
-    """
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    es_usuario_premium = suscripcion.is_active()
-
-    # --- LÓGICA DE ACTIVOS ---
-    mis_inversiones = inversiones.objects.filter(propietario=request.user).order_by('-valor_actual_mercado')
-    
-    # Totales Generales
-    agregados = mis_inversiones.aggregate(
-        total_invertido=Sum('costo_total_adquisicion'),
-        valor_actual=Sum('valor_actual_mercado')
-    )
-    
-    total_invertido = agregados['total_invertido'] or Decimal('0.00')
-    valor_total = agregados['valor_actual'] or Decimal('0.00')
-    ganancia_total = valor_total - total_invertido
-    
-    # Porcentaje de ganancia total
-    porcentaje_ganancia = 0
-    if total_invertido > 0:
-        porcentaje_ganancia = ((valor_total - total_invertido) / total_invertido) * 100
-
-    # --- DATOS PARA GRÁFICAS ---
-    # --- DATOS PARA GRÁFICAS ---
-    # 1. Historia del Portafolio (Line/Area Chart - Diario)
-    # Consultamos el historial diario ya calculado
-    historial_diario = PortfolioHistory.objects.filter(usuario=request.user).order_by('fecha')
-    
-    chart_labels = []
-    chart_data = []
-    
-    # Si no hay historial diario (primer uso), intentamos usar lo mensual como fallback temporal
-    # o simplemente mostramos vacío hasta que corran el comando.
-    if historial_diario.exists():
-        for dia in historial_diario:
-            chart_labels.append(dia.fecha.strftime('%Y-%m-%d'))
-            chart_data.append(str(dia.valor_total))
-    else:
-        # Fallback: Usamos la lógica mensual anterior si no han corrido el script aún
-        historial_ganancias = GananciaMensual.objects.filter(propietario=request.user).order_by('mes')
-        # ... (Lógica de fallback omitida para limpieza, asumimos que correrán el script)
-        pass
-
-    # 2. Distribución (Doughnut)
-    # Agrupar por tipo (Cripto vs Acciones) o por Activo
-    distribucion_labels = []
-    distribucion_data = []
-    for inv in mis_inversiones[:5]: # Top 5 activos
-        distribucion_labels.append(inv.nombre_activo)
-        distribucion_data.append(float(inv.valor_actual_mercado))
-
-    context = {
-        'inversiones': mis_inversiones,
-        'valor_total': valor_total,
-        'total_invertido': total_invertido,
-        'ganancia_total': ganancia_total,
-        'porcentaje_ganancia': porcentaje_ganancia,
-        'chart_labels': json.dumps(chart_labels),
-        'chart_data': json.dumps(chart_data),
-        'dist_labels': json.dumps(distribucion_labels),
-        'dist_data': json.dumps(distribucion_data),
-        'es_usuario_premium': es_usuario_premium,
-    }
-    return render(request, 'portafolio.html', context)
 
 @login_required
 def datos_gastos_categoria(request):
@@ -590,7 +355,7 @@ def datos_gastos_categoria(request):
     month = int(request.GET.get('month', datetime.now().month))
     gastos_por_categoria = registro_transacciones.objects.filter(
         propietario=request.user,
-        tipo__in=['GASTO', 'PAGO_MENSUALIDAD', 'PAGO_CAPITAL'],
+        tipo='GASTO',
         fecha__year=year,
         fecha__month=month
     ).values('categoria').annotate(total=Sum('monto')).order_by('-total')
@@ -610,7 +375,7 @@ def datos_flujo_dinero(request):
         fecha__month=month
     )
     ingresos = transacciones_del_mes.filter(tipo='INGRESO').exclude(categoria='Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
-    gastos = transacciones_del_mes.filter(tipo__in=['GASTO', 'PAGO_MENSUALIDAD', 'PAGO_CAPITAL']).exclude(categoria='Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
+    gastos = transacciones_del_mes.filter(tipo='GASTO').exclude(categoria='Ahorro').aggregate(total=Sum('monto'))['total'] or Decimal('0.00')
     data = {
         'labels': ['Ingresos del Mes', 'Gastos del Mes'],
         'data': [ingresos, gastos],
@@ -787,13 +552,6 @@ def revisar_inversiones(request):
     Muestra todas las inversiones pendientes para que el usuario las revise.
     """
     pending_investments = PendingInvestment.objects.filter(propietario=request.user, estado='pendiente')
-    
-    # Formateamos la fecha de manera segura para mostrarla en el template
-    for investment in pending_investments:
-        fecha_cruda = investment.datos_json.get("fecha_compra") or investment.datos_json.get("fecha")
-        fecha_obj = parse_date_safely(fecha_cruda)
-        investment.fecha_formateada = fecha_obj.strftime("%d/%m/%Y")
-        
     context = {'pending_investments': pending_investments}
     return render(request, 'revisar_inversiones.html', context)
 
@@ -912,8 +670,7 @@ def eliminar_inversion(request, inversion_id):
     inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
     if request.method == 'POST':
         inversion.delete()
-        next_url = request.POST.get('next', request.GET.get('next', 'lista_inversiones'))
-        return redirect(next_url)
+        return redirect('lista_inversiones')
     return render(request, 'confirmar_eliminar_inversion.html', {'inversion': inversion})
 
 @login_required
@@ -926,28 +683,22 @@ def crear_inversion(request):
         if form.is_valid():
             nueva_inversion = form.save(commit=False)
             nueva_inversion.propietario = request.user
-            # --- OPTIMIZACIÓN: EVITAR BLOQUEOS LARGOS ---
-            # 1. Intentamos obtener precio de caché (instantáneo)
-            # 2. Si no está en caché, usamos el precio de compra del usuario TEMPORALMENTE para no hacer esperar al navegador.
-            # 3. Lanzamos una tarea async para actualizar el precio real después (Mejora futura: Celery task).
-            
+            price_service = StockPriceService()
             ticker = form.cleaned_data.get('emisora_ticker').upper()
-            try:
-                # Modificamos get_current_price para que tenga un timeout corto internamente o confiamos en el cache
-                precio_actual_float = price_service.get_current_price(ticker)
-            except Exception as e:
-                logger.warning(f"Timeout o error al obtener precio síncrono para {ticker}: {e}")
-                precio_actual_float = None
 
+            # Obtenemos el precio como float desde el servicio
+            precio_actual_float = price_service.get_current_price(ticker)
+            
+            # --- PASO 2: AQUÍ ESTÁ LA CORRECCIÓN ---
             if precio_actual_float is not None:
+                # Convertimos el float a un Decimal antes de asignarlo al modelo
+                # Usamos str() en el medio, es la forma más segura de evitar errores de precisión.
                 nueva_inversion.precio_actual_titulo = Decimal(str(precio_actual_float))
             else:
-                # FALLBACK: Usamos el precio de compra si la API falla o tarda.
-                # Esto asegura que el usuario siempre reciba una respuesta rápida.
+                # Si la API falla, usamos el precio de compra como respaldo
                 nueva_inversion.precio_actual_titulo = nueva_inversion.precio_compra_titulo
-                # AQUÍ podríamos disparar una tarea: update_price.delay(nueva_inversion.id)
             
-            nueva_inversion.save()
+            nueva_inversion.save() # Ahora la multiplicación será entre dos Decimales
             messages.success(request, f"Inversión en {ticker} guardada con éxito.")
             return redirect('lista_inversiones')
     else:
@@ -1054,32 +805,10 @@ def detalle_deuda(request, deuda_id):
 
 @login_required
 def editar_deuda(request, deuda_id):
+    # Lógica para editar (la haremos después)
     deuda = get_object_or_404(Deuda, id=deuda_id, propietario=request.user)
-    
-    if request.method == 'POST':
-        monto_total_anterior = deuda.monto_total
-        estaba_pendiente_configuracion = deuda.requiere_configuracion_adicional
-        
-        form = DeudaForm(request.POST, instance=deuda)
-        if form.is_valid():
-            deuda = form.save(commit=False)
-            
-            # --- CORRECCIÓN SALDO PENDIENTE ---
-            # Ya sea la configuración inicial o un cambio de límite posterior,
-            # sumamos la diferencia del límite al saldo pendiente actual.
-            # Esto evita borrar gastos que se hayan hecho antes de configurar el límite.
-            diferencia_monto = (deuda.monto_total or 0) - (monto_total_anterior or 0)
-            if diferencia_monto != 0:
-                deuda.saldo_pendiente = (deuda.saldo_pendiente or 0) + diferencia_monto
-
-            deuda.requiere_configuracion_adicional = False # Ya se actualizó la configuración
-            deuda.save()
-            messages.success(request, f"La deuda '{deuda.nombre}' ha sido actualizada.")
-            return redirect('lista_deudas')
-    else:
-        form = DeudaForm(instance=deuda)
-        
-    return render(request, 'editar_deuda.html', {'form': form, 'deuda': deuda})
+    # ... (lógica del formulario de edición)
+    return redirect('lista_deudas')
 
 @login_required
 def eliminar_deuda(request, deuda_id):
@@ -1213,22 +942,7 @@ def mi_perfil(request):
     """
     Muestra y permite editar el perfil del usuario.
     """
-    try:
-        suscripcion = request.user.suscripcion
-    except Suscripcion.DoesNotExist:
-        suscripcion = None
-        
-    try:
-        google_creds = GoogleCredentials.objects.get(user=request.user)
-    except GoogleCredentials.DoesNotExist:
-        google_creds = None
-
-    context = {
-        'suscripcion': suscripcion,
-        'google_creds': google_creds,
-        'today': timezone.now().date(),
-    }
-    return render(request, 'mi_perfil.html', context)
+    return render(request, 'mi_perfil.html')
 
 @login_required
 def facturacion(request):
@@ -1239,7 +953,7 @@ def facturacion(request):
     suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
     
     # Ahora consultamos el modelo Factura en lugar de registro_transacciones
-    facturas = Factura.objects.filter(propietario=request.user, estado='facturado').order_by('-fecha_emision')
+    facturas = Factura.objects.filter(propietario=request.user).order_by('-fecha_emision')
 
     context = {
         'facturas': facturas,
@@ -1259,92 +973,111 @@ def iniciar_procesamiento_facturacion(request):
 # --- VISTA 2: Listado de Pendientes (La redirección) ---
 def revisar_facturas_pendientes(request):
     """Lista los tickets pendientes para facturación."""
-    # Ahora consultamos directamente la tabla Factura con estado 'pendiente'
-    facturas_pendientes = Factura.objects.filter(propietario=request.user, estado='pendiente').order_by('-fecha_emision')
+    tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
     
-    return render(request, 'revisar_factura.html', {'tickets': facturas_pendientes})
+    # Normalizamos los datos JSON en memoria para evitar errores en el template
+    # si faltan keys como 'fecha' o 'total'
+    for ticket in tickets_pendientes:
+        datos = ticket.datos_json
+        # Asegurar fecha
+        if 'fecha' not in datos and 'fecha_emision' in datos:
+            datos['fecha'] = datos['fecha_emision']
+        elif 'fecha_emision' not in datos and 'fecha' in datos:
+            datos['fecha_emision'] = datos['fecha']
+            
+        # Asegurar total
+        if 'total' not in datos and 'total_pagado' in datos:
+            datos['total'] = datos['total_pagado']
+        elif 'total_pagado' not in datos and 'total' in datos:
+             datos['total_pagado'] = datos['total']
+
+        # Asegurar establecimiento (facturas usan 'tienda')
+        if 'establecimiento' not in datos and 'tienda' in datos:
+            datos['establecimiento'] = datos['tienda']
+        elif 'tienda' not in datos and 'establecimiento' in datos:
+            datos['tienda'] = datos['establecimiento']
+
+    return render(request, 'revisar_factura.html', {'tickets': tickets_pendientes})
 
 @login_required
 def revisar_factura_detalle(request, ticket_id):
-    """Procesa y muestra los datos de facturación de un ticket concreto (ahora objeto Factura)."""
+    """Procesa y muestra los datos de facturación de un ticket concreto."""
+    tickets_pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
     
-    # Buscamos la Factura pendiente por ID
-    factura_obj = get_object_or_404(Factura, id=ticket_id, propietario=request.user)
+    # Normalizamos los datos JSON en memoria para evitar errores en el template
+    for ticket in tickets_pendientes:
+        datos = ticket.datos_json
+        # Asegurar fecha
+        if 'fecha' not in datos and 'fecha_emision' in datos:
+            datos['fecha'] = datos['fecha_emision']
+        elif 'fecha_emision' not in datos and 'fecha' in datos:
+            datos['fecha_emision'] = datos['fecha']
+        # Asegurar total
+        if 'total' not in datos and 'total_pagado' in datos:
+            datos['total'] = datos['total_pagado']
+        elif 'total_pagado' not in datos and 'total' in datos:
+            datos['total_pagado'] = datos['total']
+        # Asegurar establecimiento (facturas usan 'tienda')
+        if 'establecimiento' not in datos and 'tienda' in datos:
+            datos['establecimiento'] = datos['tienda']
+        elif 'tienda' not in datos and 'establecimiento' in datos:
+            datos['tienda'] = datos['establecimiento']
+
+    ticket = get_object_or_404(tickets_pendientes, id=ticket_id)
+    contexto_facturacion = BillingService.procesar_datos_facturacion(ticket.datos_json)
     
-    # Usamos el servicio para procesar/refinar los datos que ya tenemos guardados
-    # Nota: BillingService espera un dict. Le pasamos 'datos_facturacion'
-    contexto_facturacion = BillingService.procesar_datos_facturacion(factura_obj.datos_facturacion)
-    
-    # Aseguramos que el contexto tenga los datos 'meta' del modelo si no vienen en el JSON
-    if not contexto_facturacion.get('tienda') or contexto_facturacion.get('tienda') == 'DESCONOCIDO':
-        contexto_facturacion['tienda'] = factura_obj.tienda
-        
-    contexto_facturacion['fecha_emision'] = factura_obj.fecha_emision
-    contexto_facturacion['total_pagado'] = factura_obj.total
-    contexto_facturacion['archivo_id'] = factura_obj.archivo_drive_id
 
     if request.method == 'POST':
         accion = request.POST.get('accion')
         
         # --- FLUJO DE APRENDIZAJE (Guardar Configuración) ---
+
         if accion == 'guardar_configuracion':
             nombre_tienda = request.POST.get('nombre_tienda')
+            # Obtenemos la lista de checkboxes que el usuario marcó
             campos_seleccionados = request.POST.getlist('campos_seleccionados')
             
+
             if campos_seleccionados:
                 BillingService.guardar_configuracion_tienda(nombre_tienda, campos_seleccionados)
                 messages.success(request, f"¡Entendido! Para {nombre_tienda} solo necesitamos: {', '.join(campos_seleccionados)}.")
             else:
                 messages.warning(request, "No seleccionaste ningún campo. La configuración no se guardó.")
             
-            return redirect('revisar_factura', ticket_id=ticket_id)
-            
-        # --- FLUJO DE EDICIÓN (Corregir datos originales) ---
-        elif accion == 'editar_datos':
-            nuevo_tienda = request.POST.get('tienda')
-            nueva_fecha = request.POST.get('fecha_emision')
-            nuevo_total = request.POST.get('total')
+            # Recargamos la misma página. Ahora el servicio detectará que la tienda es 'conocida'
 
-            if nuevo_tienda and nueva_fecha and nuevo_total:
-                factura_obj.tienda = nuevo_tienda
-                try:
-                    factura_obj.fecha_emision = parse_date_safely(nueva_fecha)
-                    factura_obj.total = Decimal(nuevo_total)
-                    factura_obj.save()
-                    messages.success(request, f"Datos actualizados para {nuevo_tienda}.")
-                except Exception as e:
-                    messages.error(request, f"Error al guardar los datos: {e}")
-            else:
-                 messages.error(request, "Faltan datos para actualizar la factura.")
-            
             return redirect('revisar_factura', ticket_id=ticket_id)
             
         # --- FLUJO DE CONFIRMACIÓN (Datos Correctos) ---
-        elif accion == 'confirmar_datos':
-            # ACTUALIZAMOS el objeto Factura existente
-            # Y lo marcamos como 'listo_para_facturar' o 'facturado' (según tu flujo)
-            # Vamos a usar 'facturado' para que salga de pendientes y vaya al historial.
-            
-            factura_obj.estado = 'facturado' # O el estado que signifique "Listo"
-            
-            # Opcional: Actualizar datos si cambiaron en el proceso (aunque aquí solo confirmamos)
-            # factura_obj.datos_facturacion = contexto_facturacion.get('datos_para_cliente', {})
-            
-            factura_obj.save()
-            
-            messages.success(request, "Factura confirmada y guardada correctamente.")
-            return redirect('facturacion') # Redirige al historial de facturas
-        
-    # Obtenemos la lista lateral de otros pendientes
-    otros_pendientes = Factura.objects.filter(propietario=request.user, estado='pendiente').exclude(id=ticket_id).order_by('-fecha_emision')
 
+        elif accion == 'confirmar_datos':
+            # Creamos un registro de Factura independiente
+            from .models import Factura
+            from decimal import Decimal
+            
+            Factura.objects.create(
+                propietario=request.user,
+                tienda=contexto_facturacion.get('tienda', 'Desconocido'),
+                fecha_emision=parse_date_safely(contexto_facturacion.get('fecha_emision')),
+                total=Decimal(str(contexto_facturacion.get('total_pagado') or 0)),
+                datos_facturacion=contexto_facturacion.get('datos_para_cliente', {}),
+                estado='pendiente'
+            )
+            
+            # Marcamos el ticket pendiente como procesado
+            ticket.estado = 'aprobada'
+            ticket.save()
+            
+            messages.success(request, "Factura guardada correctamente.")
+            return redirect('facturacion')
+        
     return render(
         request,
         'revisar_factura.html',
         {
             'factura': contexto_facturacion,
-            'tickets': [factura_obj] + list(otros_pendientes), # Hack para que la lista lateral funcione si el template itera 'tickets'
-            'ticket_seleccionado': factura_obj,
+            'tickets': tickets_pendientes,
+            'ticket_seleccionado': ticket,
             'factura_json': json.dumps(contexto_facturacion.get('datos_para_cliente', {})),
         }
     )
@@ -1410,74 +1143,52 @@ def vista_procesamiento_facturacion(request):
 @login_required
 def eliminar_factura_pendiente(request, ticket_id):
     """
-    Elimina un ticket pendiente de facturación (ahora objeto Factura).
+    Elimina un ticket pendiente de facturación (TransaccionPendiente).
     """
-    # Buscamos por ID y estado pendiente para seguridad
-    ticket = get_object_or_404(Factura, id=ticket_id, propietario=request.user, estado='pendiente')
+    ticket = get_object_or_404(TransaccionPendiente, id=ticket_id, propietario=request.user)
     
     if request.method == 'POST':
         ticket.delete()
-        messages.success(request, "Factura pendiente eliminada correctamente.")
+        messages.success(request, "Ticket eliminado correctamente.")
         
-    return redirect('revisar_facturas_pendientes')
-
-@login_required
-def eliminar_todas_facturas_pendientes(request):
-    """
-    Elimina todos los tickets pendientes de facturación de un jalón.
-    """
-    if request.method == 'POST':
-        from .models import Factura
-        facturas_pendientes = Factura.objects.filter(propietario=request.user, estado='pendiente')
-        count = facturas_pendientes.count()
-        if count > 0:
-            facturas_pendientes.delete()
-            messages.success(request, f"Se han eliminado {count} facturas pendientes correctamente.")
-        else:
-            messages.info(request, "No hay facturas pendientes para eliminar.")
     return redirect('revisar_facturas_pendientes')
 
 @login_required
 def marcar_ticket_facturado(request, ticket_id):
     """
-    Marca un ticket pendiente como 'facturado' (mueve de pendientes al historial).
+    Marca un ticket pendiente como 'aprobado' y crea la FACTURA en la tabla Factura.
     """
-    # Ahora trabajamos directamente con el objeto Factura que ya existe
-    factura_obj = get_object_or_404(Factura, id=ticket_id, propietario=request.user)
+    ticket = get_object_or_404(TransaccionPendiente, id=ticket_id, propietario=request.user)
     
     if request.method == 'POST':
-        # Simplemente cambiamos el estado
-        factura_obj.estado = 'facturado'
-        factura_obj.save()
+        # Extraer datos básicos del JSON para crear la Factura
+        datos = ticket.datos_json
+        tienda = datos.get('tienda') or datos.get('establecimiento') or 'Desconocido'
         
-        messages.success(request, "Factura archivada en el historial.")
+        # Manejo seguro de fecha
+        fecha_str = datos.get('fecha_emision') or datos.get('fecha')
+        fecha_emision = parse_date_safely(fecha_str)
+        
+        # Manejo seguro de total
+        total_val = datos.get('total_pagado') or datos.get('total') or 0
+        
+        # Crear el objeto Factura
+        Factura.objects.create(
+            propietario=request.user,
+            tienda=tienda,
+            fecha_emision=fecha_emision,
+            total=Decimal(str(total_val)),
+            datos_facturacion=datos, # Guardamos todo el JSON original
+            estado='pendiente' # Se guarda como pendiente de facturar en el SAT/Portal
+        )
+        
+        # Marcar ticket como aprobado/procesado para que salga de la lista de pendientes
+        ticket.estado = 'aprobada'
+        ticket.save()
+        
+        messages.success(request, "Ticket enviado a la lista de facturación.")
         
     return redirect('revisar_facturas_pendientes')
-
-@csrf_exempt
-@login_required
-def actualizar_json_factura(request, ticket_id):
-    """
-    Actualiza el JSON de datos extraídos de un ticket pendiente.
-    Se usa cuando el usuario edita un campo sugerido.
-    """
-    from .models import Factura
-    import json
-    
-    if request.method == 'POST':
-        try:
-            factura_obj = get_object_or_404(Factura, id=ticket_id, propietario=request.user, estado='pendiente')
-            data = json.loads(request.body)
-            nuevo_json = data.get('datos_facturacion')
-            
-            if nuevo_json is not None:
-                factura_obj.datos_facturacion = nuevo_json
-                factura_obj.save()
-                return JsonResponse({'status': 'success'})
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
-    
-    return JsonResponse({'status': 'error', 'message': 'Invalid request'}, status=400)
 
 @login_required
 def editar_factura_registro(request, factura_id):
@@ -1535,8 +1246,7 @@ def guardar_configuracion_tienda(request):
             tienda=nombre_tienda,
             defaults={
                 'campos_requeridos': campos_seleccionados,
-                'url_portal': url_portal,
-                'configuracion_finalizada': True # ¡CAMBIO CLAVE! El usuario confirmó, así que "cerramos" la config.
+                'url_portal': url_portal
             }
         )
 
@@ -1545,65 +1255,6 @@ def guardar_configuracion_tienda(request):
 
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-
-@csrf_exempt
-@require_POST
-@login_required
-def agregar_campo_tienda(request):
-    try:
-        from .models import TiendaFacturacion
-        data = json.loads(request.body)
-        nombre_tienda = data.get('tienda')
-        nuevo_campo = data.get('campo')
-
-        if not nombre_tienda or not nuevo_campo:
-            return JsonResponse({'success': False, 'error': 'Faltan datos'}, status=400)
-
-        # Buscar la configuración de la tienda
-        config, created = TiendaFacturacion.objects.get_or_create(tienda=nombre_tienda)
-        
-        # Asegurarse de que campos_requeridos sea una lista
-        if not isinstance(config.campos_requeridos, list):
-            config.campos_requeridos = []
-
-        # Agregar el campo si no existe
-        if nuevo_campo not in config.campos_requeridos:
-            config.campos_requeridos.append(nuevo_campo)
-            config.save()
-            return JsonResponse({'success': True, 'mensaje': f'Campo "{nuevo_campo}" agregado correctamente'})
-        else:
-            return JsonResponse({'success': True, 'mensaje': 'El campo ya existía'})
-
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
-
-@csrf_exempt
-@require_POST
-def eliminar_campo_tienda(request):
-    try:
-        from .models import TiendaFacturacion
-        data = json.loads(request.body)
-        nombre_tienda = data.get('tienda')
-        campo_a_eliminar = data.get('campo')
-
-        if not nombre_tienda or not campo_a_eliminar:
-            return JsonResponse({'success': False, 'error': 'Faltan datos'}, status=400)
-
-        # Buscar la configuración
-        try:
-            config = TiendaFacturacion.objects.get(tienda=nombre_tienda)
-        except TiendaFacturacion.DoesNotExist:
-            return JsonResponse({'success': False, 'error': 'Tienda no encontrada'}, status=404)
-        
-        if config.campos_requeridos and campo_a_eliminar in config.campos_requeridos:
-            config.campos_requeridos.remove(campo_a_eliminar)
-            config.save()
-            return JsonResponse({'success': True, 'mensaje': f'Campo "{campo_a_eliminar}" eliminado correctamente'})
-        else:
-            return JsonResponse({'success': True, 'mensaje': 'El campo no estaba en la configuración'})
-
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 @csrf_exempt
 def confirmar_datos_factura(request):
@@ -1631,7 +1282,7 @@ def confirmar_datos_factura(request):
             'total': Decimal(str(total)),
             'fecha_emision': parse_date_safely(fecha),
             'datos_facturacion': datos_json,
-            'estado': 'facturado' # ¡CAMBIO CLAVE! Al confirmar, ya lo damos por bueno.
+            'estado': 'pendiente'
         }
 
         if archivo_id:
@@ -1652,348 +1303,3 @@ def confirmar_datos_factura(request):
 
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-
-@login_required
-def api_ingresos_tarjeta(request):
-    try:
-        cuenta_nombre = request.GET.get('cuenta_nombre', '')
-        year = request.GET.get('year', '')
-        month = request.GET.get('month', '')
-        
-        if not cuenta_nombre or not year or not month:
-            return JsonResponse({'status': 'error', 'message': 'Parámetros incompletos'}, status=400)
-            
-        year = int(year)
-        month = int(month)
-        
-        # Calcular el mes anterior para la comparación
-        if month == 1:
-            prev_month = 12
-            prev_year = year - 1
-        else:
-            prev_month = month - 1
-            prev_year = year
-            
-        # --- NUEVA LÓGICA: Procesador de flujos con Transferencias ---
-        def procesar_flujo(es_entrada, y, m):
-            if es_entrada:
-                # Entradas: Ingresos normales OR Transferencias que llegaron a esta tarjeta
-                qs = registro_transacciones.objects.filter(
-                    propietario=request.user, fecha__year=y, fecha__month=m
-                ).filter(
-                    Q(tipo='INGRESO', cuenta_origen=cuenta_nombre) | 
-                    Q(tipo='TRANSFERENCIA', cuenta_destino=cuenta_nombre)
-                )
-            else:
-                # Salidas: Gastos normales OR Transferencias que salieron de esta tarjeta
-                qs = registro_transacciones.objects.filter(
-                    propietario=request.user, fecha__year=y, fecha__month=m
-                ).filter(
-                    Q(tipo='GASTO', cuenta_origen=cuenta_nombre) | 
-                    Q(tipo='TRANSFERENCIA', cuenta_origen=cuenta_nombre)
-                )
-            
-            agregados = qs.aggregate(
-                total=Sum('monto'),
-                num_categorias=Count('categoria', distinct=True)
-            )
-            
-            return {
-                'total': agregados['total'] or Decimal('0.00'),
-                'transactions': qs.count(),
-                'categories': agregados['num_categorias'] or 0
-            }
-
-        # 1. Obtenemos datos del mes actual y anterior
-        entradas_act = procesar_flujo(es_entrada=True, y=year, m=month)
-        salidas_act = procesar_flujo(es_entrada=False, y=year, m=month)
-        
-        entradas_prev = procesar_flujo(es_entrada=True, y=prev_year, m=prev_month)
-        salidas_prev = procesar_flujo(es_entrada=False, y=prev_year, m=prev_month)
-
-        # 2. Función auxiliar para calcular métricas de la tarjeta
-        def calcular_metricas(act, prev):
-            dif = act['total'] - prev['total']
-            if prev['total'] > 0:
-                pct = (dif / prev['total']) * Decimal('100.0')
-            else:
-                pct = Decimal('100.0') if act['total'] > 0 else Decimal('0.0')
-                
-            return {
-                'total': f"{act['total']:,.2f}",
-                'transactions': act['transactions'],
-                'categories': act['categories'],
-                'diferencia_monto': f"{abs(dif):,.2f}",
-                'porcentaje': round(float(abs(pct)), 1),
-                'es_positivo': bool(dif >= 0),
-            }
-
-        ingresos_data = calcular_metricas(entradas_act, entradas_prev)
-        gastos_data = calcular_metricas(salidas_act, salidas_prev)
-        
-        # 3. Calcular Balance Total de esta Tarjeta específica
-        balance_act = float(entradas_act['total']) - float(salidas_act['total'])
-        balance_prev = float(entradas_prev['total']) - float(salidas_prev['total'])
-        
-        dif_balance = balance_act - balance_prev
-        if balance_prev > 0:
-            pct_balance = (dif_balance / balance_prev) * 100.0
-        else:
-            pct_balance = 100.0 if balance_act > 0 else 0.0
-
-        balance_data = {
-            'total': f"{balance_act:,.2f}",
-            'transactions': entradas_act['transactions'] + salidas_act['transactions'],
-            'categories': entradas_act['categories'] + salidas_act['categories'],
-            'diferencia_monto': f"{abs(dif_balance):,.2f}",
-            'porcentaje': round(float(abs(pct_balance)), 1),
-            'es_positivo': bool(dif_balance >= 0),
-        }
-
-        return JsonResponse({
-            'status': 'success',
-            'ingresos': ingresos_data,
-            'gastos': gastos_data,
-            'balance': balance_data
-        })
-        
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Error en api_ingresos_tarjeta: {e}")
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-
-@login_required
-def presupuesto_view(request):
-    from .models import Presupuesto
-    presupuestos = Presupuesto.objects.filter(propietario=request.user).order_by('-monto_presupuestado')
-    return render(request, 'presupuesto.html', {'presupuestos': presupuestos})
-
-@login_required
-def crear_presupuesto(request):
-    from .forms import PresupuestoForm
-    from django.contrib import messages
-    
-    if request.method == 'POST':
-        form = PresupuestoForm(request.POST)
-        if form.is_valid():
-            presupuesto = form.save(commit=False)
-            presupuesto.propietario = request.user
-            presupuesto.save()
-            messages.success(request, 'Concepto de presupuesto guardado exitosamente.')
-            return redirect('presupuesto')
-    else:
-        form = PresupuestoForm()
-        
-    return render(request, 'crear_presupuesto.html', {'form': form})
-
-@login_required
-def buscar_recibos_presupuesto(request, presupuesto_id):
-    from django.shortcuts import get_object_or_404
-    from django.contrib import messages
-    from .models import Presupuesto
-    from .services import GoogleDriveService
-    from django.http import JsonResponse
-
-    presupuesto = get_object_or_404(Presupuesto, id=presupuesto_id, propietario=request.user)
-    categoria_lower = presupuesto.categoria.lower().strip()
-    
-    if categoria_lower not in ['agua', 'luz', 'gas']:
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'error': f'La búsqueda automática de recibos no está configurada para la categoría: {presupuesto.categoria}'}, status=400)
-        messages.warning(request, f'La búsqueda automática de recibos no está configurada para la categoría: {presupuesto.categoria}')
-        return redirect('presupuesto')
-        
-    try:
-        drive_service = GoogleDriveService(request.user)
-        
-        # Buscar carpeta principal 'recibos' (insensible a mayúsculas)
-        query_recibos = "mimeType='application/vnd.google-apps.folder' and trashed=false and (name='recibos' or name='Recibos' or name='RECIBOS')"
-        response_recibos = drive_service.service.files().list(q=query_recibos, spaces='drive', fields='files(id, name)').execute()
-        carpetas_recibos = response_recibos.get('files', [])
-        
-        if not carpetas_recibos:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'error': "No se encontró la carpeta 'Recibos' en tu Google Drive. Asegúrate de crearla."}, status=404)
-            messages.warning(request, "No se encontró la carpeta 'Recibos' en tu Google Drive. Asegúrate de crearla.")
-            return redirect('presupuesto')
-            
-        carpeta_recibos_id = carpetas_recibos[0]['id']
-            
-        # Buscar la subcarpeta (ej. 'agua', 'Agua', 'AGUA') dentro de 'recibos'
-        cat_title = categoria_lower.capitalize()
-        cat_upper = categoria_lower.upper()
-        
-        query_sub = f"mimeType='application/vnd.google-apps.folder' and '{carpeta_recibos_id}' in parents and trashed=false and (name='{categoria_lower}' or name='{cat_title}' or name='{cat_upper}')"
-        response_sub = drive_service.service.files().list(q=query_sub, spaces='drive', fields='files(id, name)').execute()
-        carpetas_encontradas = response_sub.get('files', [])
-        
-        if not carpetas_encontradas:
-            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                return JsonResponse({'error': f"Se encontró la carpeta 'Recibos', pero no la subcarpeta '{categoria_lower}'. Asegúrate de crearla."}, status=404)
-            messages.warning(request, f"Se encontró la carpeta 'Recibos', pero no la subcarpeta '{categoria_lower}'. Asegúrate de crearla.")
-            return redirect('presupuesto')
-            
-        subcarpeta_id = carpetas_encontradas[0]['id']
-        
-        # Como paso intermedio, vamos a listar cuántos PDFs o imágenes hay
-        archivos = drive_service.service.files().list(
-            q=f"'{subcarpeta_id}' in parents and trashed=false",
-            fields="files(id, name, mimeType)"
-        ).execute().get('files', [])
-        
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'cantidad': len(archivos)})
-            
-        messages.success(request, f"Se encontró la carpeta '{categoria_lower}' en Drive con {len(archivos)} archivo(s). ¡Listo para el siguiente paso!")
-        
-    except Exception as e:
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'error': f"Error al acceder a Google Drive: {str(e)}. Recuerda vincular tu cuenta."}, status=500)
-        messages.error(request, f"Error al acceder a Google Drive: {str(e)}. Recuerda vincular tu cuenta.")
-        
-    return redirect('presupuesto')
-
-@login_required
-def predecir_recibo_presupuesto(request, presupuesto_id):
-    from django.shortcuts import get_object_or_404
-    from django.http import JsonResponse
-    from .models import Presupuesto, HistorialReciboServicio
-    from .services import GoogleDriveService, get_gemini_service
-    from datetime import datetime
-    import json
-    
-    if request.headers.get('x-requested-with') != 'XMLHttpRequest':
-        return JsonResponse({'error': 'Método no permitido'}, status=405)
-
-    presupuesto = get_object_or_404(Presupuesto, id=presupuesto_id, propietario=request.user)
-    categoria_lower = presupuesto.categoria.lower().strip()
-    
-    if categoria_lower not in ['agua', 'luz', 'gas']:
-        return JsonResponse({'error': 'Predicción no configurada para esta categoría'}, status=400)
-
-    try:
-        drive_service = GoogleDriveService(request.user)
-        gemini_service = get_gemini_service()
-        
-        # 1. Buscar carpeta
-        query_recibos = "mimeType='application/vnd.google-apps.folder' and trashed=false and (name='recibos' or name='Recibos' or name='RECIBOS')"
-        carpetas = drive_service.service.files().list(q=query_recibos, spaces='drive', fields='files(id)').execute().get('files', [])
-        if not carpetas:
-            return JsonResponse({'error': 'Carpeta Recibos no encontrada.'}, status=404)
-            
-        carpeta_id = carpetas[0]['id']
-        cat_upper = categoria_lower.upper()
-        cat_title = categoria_lower.capitalize()
-        query_sub = f"mimeType='application/vnd.google-apps.folder' and '{carpeta_id}' in parents and trashed=false and (name='{categoria_lower}' or name='{cat_title}' or name='{cat_upper}')"
-        
-        subcarpetas = drive_service.service.files().list(q=query_sub, spaces='drive', fields='files(id)').execute().get('files', [])
-        if not subcarpetas:
-            return JsonResponse({'error': f'Subcarpeta {categoria_lower} no encontrada.'}, status=404)
-            
-        subcarpeta_id = subcarpetas[0]['id']
-        
-        # 2. Obtener archivos
-        archivos = drive_service.service.files().list(
-            q=f"'{subcarpeta_id}' in parents and trashed=false",
-            fields="files(id, name, mimeType)"
-        ).execute().get('files', [])
-        
-        if not archivos:
-            return JsonResponse({'error': 'No hay archivos para analizar en la carpeta.'}, status=404)
-            
-        # 3. Procesar archivos nuevos
-        for archivo in archivos:
-            # Ignorar si no es imagen o pdf
-            if not archivo['mimeType'].startswith('image/') and archivo['mimeType'] != 'application/pdf':
-                continue
-                
-            # Verificar si ya existe en base de datos
-            if not HistorialReciboServicio.objects.filter(archivo_drive_id=archivo['id']).exists():
-                file_content = drive_service.get_file_content(archivo['id']).read()
-                
-                # Extraer datos con Gemini
-                datos = gemini_service.extract_data("recibo_servicio", file_content, archivo['mimeType'])
-                
-                # Guardar
-                fecha_emision = datos.get('fecha_emision')
-                if fecha_emision:
-                    try:
-                        fecha_obj = datetime.strptime(fecha_emision, '%Y-%m-%d').date()
-                    except ValueError:
-                        fecha_obj = None
-                else:
-                    fecha_obj = None
-                    
-                monto = datos.get('monto_total', 0)
-                try:
-                    monto = float(monto)
-                except:
-                    monto = 0.0
-                
-                HistorialReciboServicio.objects.create(
-                    propietario=request.user,
-                    presupuesto=presupuesto,
-                    fecha_emision=fecha_obj,
-                    monto_total=monto,
-                    datos_json=datos,
-                    archivo_drive_id=archivo['id']
-                )
-                
-        # 4. Obtener todo el historial
-        historial = HistorialReciboServicio.objects.filter(presupuesto=presupuesto).order_by('fecha_emision')
-        if not historial.exists():
-            return JsonResponse({'error': 'No se pudo extraer historial válido de los recibos.'}, status=400)
-            
-        datos_historial = []
-        for h in historial:
-            datos_historial.append({
-                "fecha_emision": str(h.fecha_emision) if h.fecha_emision else "Desconocida",
-                "monto_total": float(h.monto_total),
-                "consumo": h.datos_json.get("consumo", "Desconocido")
-            })
-            
-        contexto = json.dumps(datos_historial)
-        
-        # 5. Pedir predicción
-        prediccion = gemini_service.extract_from_text("prediccion_servicio", "", contexto)
-        print("DEBUG PREDICCION GEMINI:", prediccion)
-        monto_predicho = prediccion.get("monto_predicho", 0)
-        fecha_predicha = prediccion.get("fecha_predicha", "")
-        razonamiento = prediccion.get("razonamiento", "Sin razonamiento proporcionado por la IA.")
-        
-        try:
-            monto_predicho = float(monto_predicho)
-        except:
-            monto_predicho = 0.0
-            
-        fecha_obj = None
-        if fecha_predicha:
-            try:
-                fecha_obj = datetime.strptime(fecha_predicha, '%Y-%m-%d').date()
-            except ValueError:
-                pass
-                
-        # 6. Actualizar presupuesto
-        actualizado = False
-        if monto_predicho > 0:
-            presupuesto.monto_presupuestado = monto_predicho
-            actualizado = True
-            
-        if fecha_obj:
-            presupuesto.fecha_proximo_recibo = fecha_obj
-            actualizado = True
-            
-        if actualizado:
-            presupuesto.save()
-            
-        return JsonResponse({
-            'success': True,
-            'monto_predicho': monto_predicho,
-            'fecha_predicha': fecha_predicha,
-            'razonamiento': razonamiento
-        })
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({'error': f'Ocurrió un error al predecir: {str(e)}'}, status=500)

@@ -1,7 +1,20 @@
-# .dockerignore
-__pycache__/
-*.pyc
 .git
 .gitignore
+.claude
 .env
 db.sqlite3
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Entorno virtual de Windows y dependencias de Node (no sirven dentro de Linux)
+virtual-enviroment/
+**/node_modules/
+
+# Se regeneran dentro de la imagen o son datos locales
+staticfiles/
+debug.log
+dump.rdb
+docker/mysql-init/
+*.sql
+*.sql.gz

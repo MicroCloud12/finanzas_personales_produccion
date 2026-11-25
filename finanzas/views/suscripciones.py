@@ -1,48 +1,23 @@
 import json
 import logging
-from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.utils import timezone
 from django.urls import reverse
 from django.contrib import messages
-from django.contrib.auth import login
 from django.http import HttpResponse, JsonResponse
-from django.core.mail import send_mail
-from django.conf import settings
-from django.db.models import Sum, Q, Count
 from django.contrib.auth.models import User
-from django.utils.dateformat import DateFormat
-from django.db.models.functions import TruncMonth
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.http import require_POST
+from django.shortcuts import render, redirect
 
-from celery.result import AsyncResult, GroupResult
 
-from ..utils import parse_date_safely
-from ..tasks import (
-    process_drive_tickets,
-    process_drive_investments,
-    process_drive_amortizations,
-    process_drive_for_invoices,
-    process_drive_utility_bills,
-)
-from ..forms import (
-    TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, 
-    DeudaForm, PagoAmortizacionForm, CuentaForm
-)
 from ..services import (
-    TransactionService, MercadoPagoService, StockPriceService, 
-    InvestmentService, RISCService, BillingService
+    MercadoPagoService, RISCService, AccountService
 )
 from ..models import (
-    registro_transacciones, Suscripcion, TransaccionPendiente, 
-    inversiones, GananciaMensual, PendingInvestment, Deuda, 
-    PagoAmortizacion, AmortizacionPendiente, Factura, PortfolioHistory,
-    GoogleCredentials, TiendaFacturacion, Cuenta, Presupuesto, 
-    HistorialReciboServicio
+    Suscripcion
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +30,8 @@ def gestionar_suscripcion(request):
     suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
     
     link_pago = None
-    if not suscripcion.is_active():
+    # Sin acceso, o cancelada (aún con días pagados): ofrecer el link para (re)activar
+    if not suscripcion.is_active() or suscripcion.esta_cancelada:
         try:
             mp_service = MercadoPagoService()
             # La vista construye la URL absoluta y se la pasa al servicio
@@ -69,6 +45,29 @@ def gestionar_suscripcion(request):
         'link_pago': link_pago
     }
     return render(request, 'gestionar_suscripcion.html', context)
+
+@login_required
+@require_POST
+def cancelar_suscripcion(request):
+    """
+    Cancela el cobro recurrente en Mercado Pago. El usuario conserva Premium
+    hasta la fecha que ya pagó (``fecha_fin``).
+    """
+    # Volver a la página desde la que se canceló (perfil por defecto)
+    destino = 'gestionar_suscripcion' if request.POST.get('next') == 'gestionar_suscripcion' else 'mi_perfil'
+    try:
+        suscripcion, cancelada = AccountService.cancelar_suscripcion(request.user)
+    except Exception as e:
+        logger.exception(f"Error cancelando la suscripción de {request.user.username}: {e}")
+        messages.error(request, "No pudimos cancelar tu suscripción en Mercado Pago. Intenta de nuevo en unos minutos.")
+        return redirect(destino)
+
+    if not cancelada:
+        messages.info(request, "No tienes una suscripción activa que cancelar.")
+    else:
+        fecha_fin = timezone.localtime(suscripcion.fecha_fin).strftime('%d/%m/%Y')
+        messages.success(request, f"Tu suscripción se canceló: no habrá más cobros. Conservas Premium hasta el {fecha_fin}.")
+    return redirect(destino)
 
 @login_required
 def suscripcion_exitosa(request):
@@ -119,22 +118,24 @@ def mercadopago_webhook(request):
                     suscripcion_obj.id_suscripcion_mercadopago = subscription_id
                     suscripcion_obj.fecha_inicio = timezone.now()
                     suscripcion_obj.fecha_fin = timezone.now() + timedelta(days=31)
-                elif status in ['paused', 'cancelled']:
+                    suscripcion_obj.fecha_cancelacion = None
+                elif status == 'cancelled':
+                    # Cancelada (desde el perfil o desde Mercado Pago): conserva acceso hasta fecha_fin
                     suscripcion_obj.estado = 'cancelada'
+                    suscripcion_obj.fecha_cancelacion = suscripcion_obj.fecha_cancelacion or timezone.now()
+                elif status == 'paused':
+                    # Pago rechazado: sin acceso hasta que Mercado Pago vuelva a cobrar
+                    suscripcion_obj.estado = 'pausada'
                 
                 suscripcion_obj.save()
 
     except (json.JSONDecodeError, KeyError, Suscripcion.DoesNotExist) as e:
-        # Log del error sería ideal aquí en un sistema de producción
-        print(f"Error procesando webhook: {e}")
+        logger.error(f"Error procesando webhook de Mercado Pago: {e}")
         return HttpResponse(status=400)
 
     # Devolvemos un 200 OK para que Mercado Pago sepa que recibimos la notificación
     return HttpResponse(status=200)
 
-'''
-Inversiones
-'''
 @csrf_exempt # Es crucial para permitir que un servicio externo como Google haga POST
 def risc_webhook(request):
     """

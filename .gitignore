@@ -1,2 +1,21 @@
+# Dumps de la base de datos (datos personales): nunca al repositorio
+docker/mysql-init/*.sql
+docker/mysql-init/*.sql.gz
+
+# Secretos (claves de API, contraseñas): nunca al repositorio
 .env
-mis-finanzas-personales.json
+.env.*
+!.env.example
+
+# Datos locales que pueden contener información personal o tokens
+dump.rdb
+debug.log
+*.log
+db.sqlite3
+
+# Caché de Python, entorno virtual, dependencias Node y estáticos compilados
+__pycache__/
+*.py[cod]
+/staticfiles/
+/virtual-enviroment/
+node_modules/

@@ -1,108 +1,140 @@
+from decimal import Decimal
+
 from django import forms
+from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
-from .models import registro_transacciones, inversiones, Deuda, PagoAmortizacion
-from .models import Cuenta
+from .models import registro_transacciones, inversiones, Deuda, PagoAmortizacion, Cuenta, Presupuesto
+
+INPUT_CLASSES = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+SELECT_CLASSES = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+CHECKBOX_CLASSES = "h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+
+
+def _dos_decimales(valor):
+    """Los montos se guardan con 3 decimales; los campos de saldo del formulario aceptan 2.
+    Sin esto, el saldo calculado llega como '1167.040' y el formulario lo rechaza aunque no se toque."""
+    return Decimal(valor or 0).quantize(Decimal('0.01'))
+
+
+def _aplicar_estilos(form):
+    for field in form.fields.values():
+        if isinstance(field.widget, forms.Select):
+            field.widget.attrs.update({'class': SELECT_CLASSES})
+        elif isinstance(field.widget, forms.CheckboxInput):
+            field.widget.attrs.update({'class': CHECKBOX_CLASSES})
+        else:
+            field.widget.attrs.update({'class': INPUT_CLASSES})
+
 
 class CuentaForm(forms.ModelForm):
+    """
+    Alta/edición de cuentas del libro mayor. El usuario captura el SALDO ACTUAL
+    (lo que dice su banco hoy) y el formulario lo traduce a `saldo_inicial`
+    para que el saldo derivado de los movimientos coincida (conciliación).
+    """
+    saldo_actual = forms.DecimalField(
+        required=False, max_digits=20, decimal_places=2, initial=0,
+        label="Saldo actual",
+        help_text="Activos: cuánto dinero hay hoy en la cuenta. Tarjetas/préstamos: cuánto debes hoy. "
+                  "Se usa para cuadrar el saldo con tus movimientos registrados.")
+
     class Meta:
         model = Cuenta
-        fields = ['nombre', 'terminacion', 'tipo', 'es_principal']
-        
+        fields = ['nombre', 'terminacion', 'tipo', 'es_principal', 'saldo_inicial']
+        labels = {'saldo_inicial': 'Saldo inicial'}
+        help_texts = {'saldo_inicial': 'Lo que había en la cuenta antes del primer movimiento registrado '
+                                       '(en tarjetas y préstamos, lo que se debía). Saldo actual = saldo inicial + movimientos. '
+                                       'Ponlo en 0 para deshacer un ajuste.'}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-        select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-
-        for field_name, field in self.fields.items():
-            if isinstance(field.widget, forms.Select):
-                field.widget.attrs.update({'class': select_classes})
-            elif isinstance(field.widget, forms.CheckboxInput):
-                field.widget.attrs.update({'class': 'h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded'})
-            else:
-                field.widget.attrs.update({'class': input_classes})
-                
-        # Textos de ayuda
+        _aplicar_estilos(self)
+        # Un préstamo se da de alta en Deudas (ahí se captura tasa, plazo y amortización).
+        self.fields['tipo'].choices = [c for c in Cuenta.TIPO_CUENTA if c[0] != 'PRESTAMO']
+        self.fields['saldo_inicial'].required = False
         self.fields['nombre'].widget.attrs.update({'placeholder': 'Ej. Tarjeta Nu, Efectivo, BBVA'})
         self.fields['terminacion'].widget.attrs.update({'placeholder': 'Ej. 1234 (Solo los últimos 4 números)'})
+        self._saldo_calculado = None
+        if self.instance and self.instance.pk:
+            self._saldo_calculado = _dos_decimales(self.instance.saldo())
+            self.fields['saldo_actual'].initial = self._saldo_calculado
+
+    def save(self, commit=True):
+        cuenta = super().save(commit=False)
+        saldo_actual = self.cleaned_data.get('saldo_actual')
+        if cuenta.saldo_inicial is None:
+            cuenta.saldo_inicial = 0
+        es_nueva = cuenta.pk is None
+        if es_nueva and saldo_actual is not None and not self.cleaned_data.get('saldo_inicial'):
+            # Cuenta nueva: no hay movimientos, el saldo actual ES el saldo inicial.
+            cuenta.saldo_inicial = saldo_actual
+        if commit:
+            cuenta.save()
+            # Cuenta existente: solo si el usuario CAMBIÓ el saldo actual lo conciliamos;
+            # si lo dejó como estaba, respetamos el saldo inicial que haya escrito.
+            if not es_nueva and saldo_actual is not None and saldo_actual != self._saldo_calculado:
+                cuenta.ajustar_saldo_inicial_para(saldo_actual)
+        return cuenta
 
 class TransaccionesForm(forms.ModelForm):
+    """
+    Captura de movimientos del libro diario.
+      INGRESO        -> solo `destino` (a qué cuenta entra)
+      GASTO          -> solo `origen`  (con qué cuenta/tarjeta se pagó)
+      TRANSFERENCIA  -> origen y destino (pagar tarjeta, ahorrar, mover dinero)
+      PAGO_*         -> origen (cuenta) y destino (préstamo)
+    """
     class Meta:
         model = registro_transacciones
-        exclude = ('propietario', 'deuda_asociada', 'tipo_pago')
+        fields = ['fecha', 'descripcion', 'categoria', 'monto', 'tipo', 'origen', 'destino', 'monto_interes']
+        labels = {
+            'origen': 'Cuenta de la que sale',
+            'destino': 'Cuenta a la que entra',
+            'monto_interes': 'De ese monto, ¿cuánto es interés (+IVA)?',
+        }
         widgets = {
-            'fecha': forms.DateInput(attrs={'type': 'date','class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'descripcion': forms.Textarea(attrs={'rows': 3, 'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'categoria': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'monto': forms.NumberInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'tipo': forms.Select(attrs={'class': 'block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'cuenta_origen': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
-            'cuenta_destino': forms.TextInput(attrs={'class': 'appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'}),
+            'fecha': forms.DateInput(attrs={'type': 'date'}),
+            'descripcion': forms.Textarea(attrs={'rows': 3}),
         }
 
     def __init__(self, *args, **kwargs):
-        # Extraemos el usuario que pasamos desde la vista
         user = kwargs.pop('user', None)
-        super(TransaccionesForm, self).__init__(*args, **kwargs)
-
-
-        # 3. Ahora que el formulario está inicializado, podemos modificar sus campos.
-        if user:
-            self.user = user
-            # Obtenemos solo las cuentas que pertenecen a este usuario
-            cuentas = Cuenta.objects.filter(propietario=user)
-            opciones_origen = [(c.nombre, c.nombre) for c in cuentas]
-            
-            deudas = Deuda.objects.filter(propietario=user)
-            opciones_destino = opciones_origen.copy()
-            for d in deudas:
-                if (d.nombre, d.nombre) not in opciones_destino:
-                    opciones_destino.append((d.nombre, d.nombre))
-
-            # 👇 NUEVO: Rescatamos las clases CSS y atributos originales 👇
-            atributos_origen = self.fields['cuenta_origen'].widget.attrs.copy()
-            atributos_destino = self.fields['cuenta_destino'].widget.attrs.copy()
-
-        self.fields['cuenta_origen'].required = False
-        self.fields['cuenta_destino'].required = False
-        
-        self.fields['cuenta_destino'].widget = forms.Select(
-                choices=[('', '---------')] + opciones_destino,
-                attrs=atributos_destino # <--- Le devolvemos su estilo
-            )
-        # Transformamos en Select, pero reinyectando los atributos de estilo
-        self.fields['cuenta_origen'].widget = forms.Select(
-                choices=opciones_origen,
-                attrs=atributos_origen  # <--- Le devolvemos su estilo
-            )
-
-        # Aplicamos estilos
-        tailwind_select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-        tailwind_input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-
-        for field_name, field in self.fields.items():
-            widget = field.widget
-            if isinstance(widget, forms.Select):
-                widget.attrs.update({'class': tailwind_select_classes})
-            elif isinstance(widget, forms.DateInput):
-                widget.attrs.update({'class': tailwind_input_classes, 'type': 'date'})
-            else:
-                widget.attrs.update({'class': tailwind_input_classes})
+        super().__init__(*args, **kwargs)
+        self.user = user
+        cuentas = Cuenta.objects.filter(propietario=user) if user else Cuenta.objects.none()
+        self.fields['origen'].queryset = cuentas
+        self.fields['destino'].queryset = cuentas
+        self.fields['origen'].required = False
+        self.fields['destino'].required = False
+        self.fields['monto_interes'].required = False
+        self.fields['origen'].empty_label = '---------'
+        self.fields['destino'].empty_label = '---------'
+        _aplicar_estilos(self)
 
     def clean(self):
-        cleaned_data = super().clean()
-        # Si vienen vacíos, ponemos un valor por defecto para que el Modelo no se queje (blank=False)
-        if not cleaned_data.get('cuenta_origen'):
-            cleaned_data['cuenta_origen'] = 'Sin Cuenta'
-        
-        if not cleaned_data.get('cuenta_destino'):
-            cleaned_data['cuenta_destino'] = 'Sin Cuenta'
-            
-        return cleaned_data
+        cleaned = super().clean()
+        if cleaned.get('monto_interes') is None:
+            cleaned['monto_interes'] = 0
+        # Las reglas de origen/destino por tipo viven en el modelo (clean()).
+        # Las ejecutamos aquí para mostrar los errores en el formulario.
+        instancia = registro_transacciones(
+            propietario=self.user, tipo=cleaned.get('tipo'), monto=cleaned.get('monto'),
+            origen=cleaned.get('origen'), destino=cleaned.get('destino'),
+            monto_interes=cleaned.get('monto_interes') or 0,
+        )
+        try:
+            instancia.clean()
+        except ValidationError as e:
+            for campo, mensajes in e.message_dict.items():
+                for m in mensajes:
+                    self.add_error(campo if campo in self.fields else None, m)
+        else:
+            cleaned['origen'] = instancia.origen
+            cleaned['destino'] = instancia.destino
+        return cleaned
 
 class FormularioRegistroPersonalizado(UserCreationForm):
-    # El campo de email y la validación que ya teníamos están perfectos.
     email = forms.EmailField(
         required=True,
         help_text='Obligatorio. Introduce una dirección de correo válida.'
@@ -111,22 +143,11 @@ class FormularioRegistroPersonalizado(UserCreationForm):
     class Meta(UserCreationForm.Meta):
         fields = UserCreationForm.Meta.fields + ('email',)
 
-    # --- AQUÍ VIENE LA NUEVA LÓGICA ---
-    # Sobrescribimos el método de inicialización del formulario
     def __init__(self, *args, **kwargs):
-        # Primero, ejecutamos la inicialización original
         super().__init__(*args, **kwargs)
-
-        # Ahora, definimos las clases de Tailwind que queremos aplicar
-        tailwind_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-
-        # Iteramos sobre todos los campos del formulario
-        for field_name, field in self.fields.items():
-            # Y le añadimos las clases a su widget (el input HTML)
-            field.widget.attrs.update({'class': tailwind_classes})
+        _aplicar_estilos(self)
 
     def clean_email(self):
-        # Esta función de validación sigue igual
         email = self.cleaned_data.get('email')
         if User.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError("Este correo electrónico ya está en uso.")
@@ -138,7 +159,6 @@ class InversionForm(forms.ModelForm):
     """
     class Meta:
         model = inversiones
-        # Es más claro definir los campos que SÍ queremos mostrar.
         fields = [
             'tipo_inversion',
             'nombre_activo',
@@ -154,104 +174,110 @@ class InversionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # --- LÓGICA DE ESTILOS MEJORADA ---
-
-        # Clases para inputs normales (texto, número, fecha)
-        input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-        
-        # Clases específicas para la lista desplegable (select)
-        select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-
-        # Aplicamos los estilos de forma condicional
-        for field_name, field in self.fields.items():
-            if isinstance(field.widget, forms.Select):
-                # Si el campo es una lista (como 'tipo_inversion')
-                field.widget.attrs.update({'class': select_classes})
-            else:
-                # Para todos los demás campos
-                field.widget.attrs.update({'class': input_classes})
-        
-        # Añadimos textos de ayuda para guiar al usuario
+        _aplicar_estilos(self)
         self.fields['nombre_activo'].help_text = "Ej: 'NVIDIA Corp', 'Bitcoin', 'Fondo de Inversión Global'."
         self.fields['emisora_ticker'].help_text = "Opcional. Ej: 'AAPL' para Apple, 'BIMBOA.MX' para Bimbo."
 
 class DeudaForm(forms.ModelForm):
     """
-    Formulario para crear y actualizar deudas, con estilos de Tailwind.
+    Alta/edición de deudas. El saldo NO se captura: se deriva de los movimientos.
+    `saldo_actual` sirve para cuadrar (conciliar) lo que debes hoy.
     """
+    saldo_actual = forms.DecimalField(
+        required=False, max_digits=12, decimal_places=2,
+        label="¿Cuánto debes hoy?",
+        help_text="Préstamo: capital pendiente (el 'saldo insoluto' de tu tabla de amortización, sin intereses futuros). "
+                  "Tarjeta: saldo usado (lo que aparece en tu estado de cuenta). Déjalo vacío para no modificarlo.")
+
     class Meta:
         model = Deuda
-        # Excluimos los campos que se calculan automáticamente o los asigna el sistema.
-        exclude = ('propietario', 'saldo_pendiente', 'requiere_configuracion_adicional')
-        
-        # Textos de ayuda para guiar al usuario
+        exclude = ('propietario', 'cuenta', 'saldo_legado', 'requiere_configuracion_adicional')
+        widgets = {'fecha_adquisicion': forms.DateInput(attrs={'type': 'date'})}
         help_texts = {
             'nombre': "Dale un apodo fácil de recordar (ej. 'Tarjeta Banamex', 'Crédito Coche').",
             'tasa_interes': "Ingresa la Tasa de Interés Anual (Ej: 16.5 para 16.5%).",
-            'plazo_meses': "Para tarjetas de crédito, puedes dejarlo en 1."
+            'plazo_meses': "Para tarjetas de crédito, puedes dejarlo en 1.",
+            'monto_total': "Préstamo: el capital que te prestaron (NO el 'monto total a pagar', que ya trae los intereses). "
+                           "Tarjeta: límite de crédito.",
         }
 
     def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            
-            # Clases de Tailwind para aplicar a los campos
-            input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            select_classes = "block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+        super().__init__(*args, **kwargs)
+        _aplicar_estilos(self)
+        if self.instance and self.instance.pk:
+            self.fields['saldo_actual'].initial = _dos_decimales(self.instance.saldo_pendiente)
 
-            # Aplicamos los estilos a cada campo
-            for field_name, field in self.fields.items():
-                if isinstance(field.widget, forms.Select):
-                    # --- ¡AQUÍ ESTABA EL ERROR CORREGIDO! ---
-                    field.widget.attrs.update({'class': select_classes})
-                else:
-                    field.widget.attrs.update({'class': input_classes})
-                    
-            # Hacemos que el campo de fecha use el widget de fecha de HTML5
-            self.fields['fecha_adquisicion'].widget = forms.DateInput(
-                attrs={'type': 'date', 'class': input_classes}
-        )
-            
+    def save(self, commit=True):
+        deuda = super().save(commit=False)
+        saldo_actual = self.cleaned_data.get('saldo_actual')
+        if commit:
+            es_nueva = deuda.pk is None
+            if es_nueva:
+                inicial = saldo_actual
+                if inicial is None:
+                    inicial = deuda.monto_total if deuda.tipo_deuda == 'PRESTAMO' else 0
+                deuda.save(saldo_inicial=inicial)
+            else:
+                deuda.save()
+                if saldo_actual is not None:
+                    deuda.cuenta.ajustar_saldo_inicial_para(saldo_actual)
+        return deuda
+
 class PagoAmortizacionForm(forms.ModelForm):
     class Meta:
         model = PagoAmortizacion
-        # Incluimos solo los campos que el usuario debe llenar
         fields = ['fecha_vencimiento', 'capital', 'interes', 'iva']
+        widgets = {'fecha_vencimiento': forms.DateInput(attrs={'type': 'date'})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm"
-        
-        for field_name, field in self.fields.items():
-            field.widget.attrs.update({'class': input_classes})
-            
-        self.fields['fecha_vencimiento'].widget = forms.DateInput(
-            attrs={'type': 'date', 'class': input_classes}
-        )
-
-from .models import Presupuesto
+        _aplicar_estilos(self)
 
 class PresupuestoForm(forms.ModelForm):
     class Meta:
         model = Presupuesto
-        fields = ['categoria', 'monto_presupuestado', 'monto_real', 'es_recurrente', 'mes', 'anio']
+        fields = ['categoria', 'es_fijo', 'monto_presupuestado', 'monto_real', 'dia_pago', 'es_recurrente', 'mes', 'anio']
+        labels = {
+            'categoria': 'Concepto / Categoría',
+            'es_fijo': 'Es de monto fijo',
+            'monto_presupuestado': 'Monto presupuestado',
+            'monto_real': 'Último monto real pagado',
+            'dia_pago': 'Día de pago del mes (opcional)',
+            'es_recurrente': 'Se repite cada mes (recurrente)',
+            'mes': 'Mes',
+            'anio': 'Año',
+        }
         help_texts = {
-            'categoria': "Ej. Vivienda, Alimentación, Transporte.",
-            'monto_presupuestado': "Monto límite que planeas gastar en esta categoría.",
+            'categoria': "Ej. Renta, Muchacha, Luz, Agua, Internet. Si lleva recibos en Drive, usa el nombre de la carpeta (Recibos/luz).",
+            'es_fijo': "Para gastos como renta, muchacha o suscripciones donde tú defines cuánto pagas al mes.",
+            'monto_presupuestado': "Lo que planeas pagar al mes. En los de recibo variable se actualiza al predecir.",
             'monto_real': "Monto realmente gastado o facturado en este periodo.",
-            'es_recurrente': "Si está activo, este presupuesto se aplicará todos los meses.",
-            'mes': "Solo si NO es recurrente. (1-12)",
-            'anio': "Solo si NO es recurrente. Ej. 2026",
+            'dia_pago': "Ej. 29 si lo pagas un día exacto del mes, o déjalo vacío si lo pagas por semana o quincena.",
+            'es_recurrente': "Desactívalo solo si es un pago único en el año (ej. Tenencia o Predial).",
+            'mes': "Solo para pagos únicos (1-12).",
+            'anio': "Solo para pagos únicos (ej. 2026).",
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        input_classes = "appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-        checkbox_classes = "h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+        _aplicar_estilos(self)
+        if self.instance and self.instance.pk and self.instance.usa_monto_fijo:
+            self.fields['es_fijo'].initial = True
 
-        for field_name, field in self.fields.items():
-            if isinstance(field.widget, forms.CheckboxInput):
-                field.widget.attrs.update({'class': checkbox_classes})
-            else:
-                field.widget.attrs.update({'class': input_classes})
+    def clean_dia_pago(self):
+        dia = self.cleaned_data.get('dia_pago')
+        if dia is not None and not 1 <= dia <= 31:
+            raise forms.ValidationError("El día de pago debe estar entre 1 y 31.")
+        return dia
+
+    def clean(self):
+        cleaned = super().clean()
+        usa_selector_ui = self.data.get('modo_selector') == '1'
+        if usa_selector_ui and not cleaned.get('es_fijo'):
+            cleaned['dia_pago'] = None
+        elif cleaned.get('dia_pago') is not None:
+            cleaned['es_fijo'] = True
+        if cleaned.get('es_recurrente'):
+            cleaned['mes'] = None
+            cleaned['anio'] = None
+        return cleaned

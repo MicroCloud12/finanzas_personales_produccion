@@ -1,48 +1,26 @@
 import logging
-from decimal import Decimal
-from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
-from django.utils import timezone
-from django.urls import reverse
 from django.contrib import messages
-from django.contrib.auth import login
-from django.http import HttpResponse, JsonResponse
-from django.core.mail import send_mail
-from django.conf import settings
-from django.db.models import Sum, Q, Count
-from django.contrib.auth.models import User
-from django.utils.dateformat import DateFormat
-from django.db.models.functions import TruncMonth
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.db.models import Sum
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect, get_object_or_404
 
-from celery.result import AsyncResult, GroupResult
 
 from ..utils import parse_date_safely
 from ..tasks import (
-    process_drive_tickets,
     process_drive_investments,
-    process_drive_amortizations,
-    process_drive_for_invoices,
-    process_drive_utility_bills,
+    update_user_portfolio_history,
 )
 from ..forms import (
-    TransaccionesForm, FormularioRegistroPersonalizado, InversionForm, 
-    DeudaForm, PagoAmortizacionForm, CuentaForm
+    InversionForm
 )
-from ..services import (
-    TransactionService, MercadoPagoService, StockPriceService, 
-    InvestmentService, RISCService, BillingService
-)
-from ..models import (
-    registro_transacciones, Suscripcion, TransaccionPendiente, 
-    inversiones, PendingInvestment, Deuda,
-    PagoAmortizacion, AmortizacionPendiente, Factura, PortfolioHistory,
-    GoogleCredentials, TiendaFacturacion, Cuenta, Presupuesto,
-    HistorialReciboServicio
-)
+from ..services import StockPriceService
+from ..models import Suscripcion, inversiones, PendingInvestment, PortfolioHistory
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +85,14 @@ def iniciar_procesamiento_inversiones(request):
 
 @login_required
 def vista_procesamiento_inversiones(request):
-    return render(request, 'procesamiento_inversiones.html')
+    return render(request, 'procesamiento.html', {
+        'titulo': 'Procesamiento de Inversiones',
+        'subtitulo': 'Sincroniza tus estados de cuenta y movimientos.',
+        'icono': 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6',
+        'descripcion': 'Busca y procesa nuevas inversiones en tu Google Drive.',
+        'start_url': reverse('procesar_drive_inversiones'),
+        'redirect_url': reverse('revisar_inversiones'),
+    })
 
 @login_required
 def revisar_inversiones(request):
@@ -125,6 +110,26 @@ def revisar_inversiones(request):
     context = {'pending_investments': pending_investments}
     return render(request, 'revisar_inversiones.html', context)
 
+def _aprobar_pendiente(usuario, pending):
+    """Convierte una inversión pendiente en una inversión real y la marca como aprobada."""
+    datos = pending.datos_json
+    # Valor de mercado calculado en la tarea; si no existe, el precio de compra.
+    precio_actual = datos.get("valor_actual_mercado", datos.get("precio_por_titulo", "0.0"))
+    tipo_cambio = datos.get("tipo_cambio")
+    # save() calcula costo_total_adquisicion, valor_actual_mercado y la ganancia.
+    inversiones.objects.create(
+        propietario=usuario,
+        fecha_compra=parse_date_safely(datos.get("fecha_compra")),
+        emisora_ticker=datos.get("emisora_ticker"),
+        nombre_activo=datos.get("nombre_activo"),
+        cantidad_titulos=Decimal(datos.get("cantidad_titulos", "0.0")),
+        precio_compra_titulo=Decimal(datos.get("precio_por_titulo", "0.0")),
+        precio_actual_titulo=Decimal(precio_actual) / Decimal(datos.get("cantidad_titulos", "1.0")),
+        tipo_cambio_compra=Decimal(tipo_cambio) if tipo_cambio is not None else None,
+    )
+    pending.estado = 'aprobada'
+    pending.save()
+
 @login_required
 def aprobar_inversion(request, inversion_id):
     """
@@ -133,45 +138,31 @@ def aprobar_inversion(request, inversion_id):
     pending = get_object_or_404(PendingInvestment, id=inversion_id, propietario=request.user)
     
     if request.method == 'POST':
-        datos = pending.datos_json
-        
-        # --- CORRECCIÓN AQUÍ ---
-        # Leemos los datos correctos que calculamos en la tarea asíncrona.
-        
-        # 1. Obtenemos el precio actual que guardamos. Si no existe, usamos el de compra como respaldo.
-        precio_actual = datos.get("valor_actual_mercado", datos.get("precio_por_titulo", "0.0"))
-
-        # 2. Obtenemos el tipo de cambio usando la clave correcta ('tipo_cambio').
-        tipo_cambio = datos.get("tipo_cambio")
-
-        # 3. Creamos la inversión final usando los datos correctos del JSON.
-        inversiones.objects.create(
-            propietario=request.user,
-            fecha_compra=parse_date_safely(datos.get("fecha_compra")),
-            emisora_ticker=datos.get("emisora_ticker"),
-            nombre_activo=datos.get("nombre_activo"),
-            cantidad_titulos=Decimal(datos.get("cantidad_titulos", "0.0")),
-            precio_compra_titulo=Decimal(datos.get("precio_por_titulo", "0.0")),
-            
-            # Usamos el precio actual del mercado que calculamos en la tarea
-            precio_actual_titulo=Decimal(precio_actual) / Decimal(datos.get("cantidad_titulos", "1.0")),
-
-            # Usamos la clave correcta para el tipo de cambio
-            tipo_cambio_compra=Decimal(tipo_cambio) if tipo_cambio is not None else None,
-        )
-        
-        # El modelo `inversiones` calculará automáticamente:
-        # - costo_total_adquisicion
-        # - valor_actual_mercado
-        # - ganancia_perdida_no_realizada
-        # ...en su método .save(), que es llamado por .create()
-
-        pending.estado = 'aprobada'
-        pending.save()
-        
-        messages.success(request, f"Inversión en {datos.get('nombre_activo')} aprobada correctamente.")
+        _aprobar_pendiente(request.user, pending)
+        update_user_portfolio_history.delay(request.user.id)
+        messages.success(request, f"Inversión en {pending.datos_json.get('nombre_activo')} aprobada correctamente.")
         return redirect('revisar_inversiones')
 
+    return redirect('revisar_inversiones')
+
+@login_required
+def aprobar_todas_inversiones(request):
+    """Aprueba todas las inversiones pendientes; las que traigan datos inválidos se quedan pendientes."""
+    if request.method == 'POST':
+        aprobadas, omitidas = 0, []
+        for pending in PendingInvestment.objects.filter(propietario=request.user, estado='pendiente'):
+            try:
+                _aprobar_pendiente(request.user, pending)
+                aprobadas += 1
+            except (InvalidOperation, TypeError, ValueError, ZeroDivisionError):
+                omitidas.append(pending.datos_json.get('nombre_activo') or pending.datos_json.get('emisora_ticker') or f"#{pending.id}")
+        if aprobadas:
+            update_user_portfolio_history.delay(request.user.id)
+            messages.success(request, f"{aprobadas} inversion{'es' if aprobadas != 1 else ''} aprobada{'s' if aprobadas != 1 else ''} correctamente.")
+        elif not omitidas:
+            messages.warning(request, "No hay inversiones pendientes por aprobar.")
+        if omitidas:
+            messages.info(request, f"Se quedaron pendientes por datos incompletos: {', '.join(omitidas)}. Revísalas una por una.")
     return redirect('revisar_inversiones')
 
 @login_required
@@ -179,37 +170,14 @@ def rechazar_inversion(request, inversion_id):
     """
     Rechaza (elimina) una inversión pendiente.
     """
-    inversion = PendingInvestment.objects.get(id=inversion_id, propietario=request.user)
-    inversion.estado = 'rechazada'
-    inversion.save()
-    return redirect('revisar_inversiones')
-
-@login_required
-def aprobar_todas_inversiones(request):
-    if request.method == 'POST':
-        pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-        inversiones_pendientes = [p for p in pendientes if 'nombre_activo' in p.datos_json]
-        investment_service = InvestmentService()
-        aprobadas = 0
-        for inv in inversiones_pendientes:
-            investment_service.create_investment(request.user, inv.datos_json)
-            inv.estado = 'aprobada'
-            inv.save()
-            aprobadas += 1
-        if aprobadas > 0:
-            messages.success(request, f"{aprobadas} inversiones han sido aprobadas correctamente.")
-        else:
-            messages.warning(request, "No se aprobaron inversiones.")
+    PendingInvestment.objects.filter(id=inversion_id, propietario=request.user).update(estado='rechazada')
     return redirect('revisar_inversiones')
 
 @login_required
 def rechazar_todas_inversiones(request):
     if request.method == 'POST':
-        pendientes = TransaccionPendiente.objects.filter(propietario=request.user, estado='pendiente')
-        for inv in pendientes:
-            if 'nombre_activo' in inv.datos_json:
-                inv.estado = 'rechazada'
-                inv.save()
+        n = PendingInvestment.objects.filter(propietario=request.user, estado='pendiente').update(estado='rechazada')
+        messages.success(request, f"{n} inversion{'es' if n != 1 else ''} rechazada{'s' if n != 1 else ''}.")
     return redirect('revisar_inversiones')
 
 @login_required
@@ -230,19 +198,22 @@ def editar_inversion(request, inversion_id):
         form = InversionForm(request.POST, instance=inversion)
         if form.is_valid():
             form.save()
+            update_user_portfolio_history.delay(request.user.id)
             return redirect('lista_inversiones')
     else:
         form = InversionForm(instance=inversion)
-    return render(request, 'editar_inversion.html', {'form': form})
+    return render(request, 'form_simple.html', {
+        'form': form, 'titulo': 'Editar Inversión', 'boton': 'Actualizar', 'cancel_url': reverse('lista_inversiones')})
 
 @login_required
+@require_POST
 def eliminar_inversion(request, inversion_id):
-    inversion = get_object_or_404(inversiones, id=inversion_id, propietario=request.user)
-    if request.method == 'POST':
-        inversion.delete()
-        next_url = request.POST.get('next', request.GET.get('next', 'lista_inversiones'))
-        return redirect(next_url)
-    return render(request, 'confirmar_eliminar_inversion.html', {'inversion': inversion})
+    get_object_or_404(inversiones, id=inversion_id, propietario=request.user).delete()
+    update_user_portfolio_history.delay(request.user.id)
+    next_url = request.POST.get('next', '')
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = 'lista_inversiones'   # nunca redirigir a otro dominio
+    return redirect(next_url)
 
 @login_required
 def crear_inversion(request):
@@ -254,34 +225,21 @@ def crear_inversion(request):
         if form.is_valid():
             nueva_inversion = form.save(commit=False)
             nueva_inversion.propietario = request.user
-            # --- OPTIMIZACIÓN: EVITAR BLOQUEOS LARGOS ---
-            # 1. Intentamos obtener precio de caché (instantáneo)
-            # 2. Si no está en caché, usamos el precio de compra del usuario TEMPORALMENTE para no hacer esperar al navegador.
-            # 3. Lanzamos una tarea async para actualizar el precio real después (Mejora futura: Celery task).
-            
-            ticker = form.cleaned_data.get('emisora_ticker').upper()
+            # Precio de caché/API; si falla o no hay ticker (cripto, fondos) se usa el de compra.
+            ticker = (form.cleaned_data.get('emisora_ticker') or '').upper()
             try:
-                # Modificamos get_current_price para que tenga un timeout corto internamente o confiamos en el cache
-                precio_actual_float = price_service.get_current_price(ticker)
+                precio = StockPriceService().get_current_price(ticker)
             except Exception as e:
-                logger.warning(f"Timeout o error al obtener precio síncrono para {ticker}: {e}")
-                precio_actual_float = None
-
-            if precio_actual_float is not None:
-                nueva_inversion.precio_actual_titulo = Decimal(str(precio_actual_float))
-            else:
-                # FALLBACK: Usamos el precio de compra si la API falla o tarda.
-                # Esto asegura que el usuario siempre reciba una respuesta rápida.
-                nueva_inversion.precio_actual_titulo = nueva_inversion.precio_compra_titulo
-                # AQUÍ podríamos disparar una tarea: update_price.delay(nueva_inversion.id)
-            
+                logger.warning(f"Error al obtener precio síncrono para {ticker}: {e}")
+                precio = None
+            nueva_inversion.precio_actual_titulo = Decimal(str(precio)) if precio is not None else nueva_inversion.precio_compra_titulo
             nueva_inversion.save()
-            messages.success(request, f"Inversión en {ticker} guardada con éxito.")
+            update_user_portfolio_history.delay(request.user.id)
+            messages.success(request, f"Inversión en {ticker or nueva_inversion.nombre_activo} guardada con éxito.")
             return redirect('lista_inversiones')
     else:
         form = InversionForm()
     
-    context = {'form': form}
-    # Asegúrate de que el path a tu template es correcto
-    return render(request, 'crear_inversion.html', context)
+    return render(request, 'form_simple.html', {
+        'form': form, 'titulo': 'Añadir Nueva Inversión', 'boton': 'Guardar Inversión', 'cancel_url': reverse('lista_inversiones')})
 
