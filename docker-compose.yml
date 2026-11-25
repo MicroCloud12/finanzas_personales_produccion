@@ -1,5 +1,6 @@
-# Entorno de CALIDAD: corre la imagen tal como se construye (sin montar el código local).
+# Corre la imagen tal como se construye (sin montar el código local).
 # Los secretos salen de .env; aquí solo van los valores propios de Docker.
+# En el VPS, Caddy recibe el tráfico (80/443) con HTTPS automático y se lo pasa a web:8000.
 
 x-app: &app
   build: .
@@ -52,11 +53,31 @@ services:
       - -c
       - sh docker/migrate.sh && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 -k gevent --timeout 60 --access-logfile -
     ports:
-      - "8000:8000"
+      # Solo desde el propio servidor (para pruebas); internet entra por Caddy.
+      - "127.0.0.1:8000:8000"
 
   celery:
     <<: *app
-    command: celery -A config worker -l info --concurrency=10
+    # 4 procesos bastan para un VPS de 1 vCPU / 4 GB; las tareas esperan a Gemini y Drive.
+    command: celery -A config worker -l info --concurrency=4
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Dominio o subdominio apuntado al VPS, sin https:// (p. ej. finanzas.tudominio.com)
+      DOMAIN: ${DOMAIN:?Falta DOMAIN en .env}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
 
 volumes:
   mysql_data:
+  caddy_data:
+  caddy_config:
