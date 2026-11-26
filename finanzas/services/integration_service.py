@@ -93,7 +93,9 @@ class MercadoPagoService:
         preapproval_plan_id = self.planes.get((plan, periodo))
         if not preapproval_plan_id:
             return None
-        return f"{self.CHECKOUT_URL}?preapproval_plan_id={preapproval_plan_id}"
+        # external_reference = id del usuario: si Mercado Pago lo conserva en el preapproval, el webhook
+        # identifica al usuario sin depender de que su correo de Mercado Pago sea el mismo que el de la app
+        return f"{self.CHECKOUT_URL}?preapproval_plan_id={preapproval_plan_id}&external_reference={user.pk}"
 
     def plan_por_preapproval(self, preapproval_plan_id: str | None):
         """(plan, periodo) que corresponde a un preapproval_plan_id de Mercado Pago; Personal mensual

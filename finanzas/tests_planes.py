@@ -138,6 +138,65 @@ class PaginaPlanesYWebhookTest(TestCase):
         self.assertEqual((sus.plan, sus.periodo), ('personal', 'mensual'))
         sdk.preapproval.return_value.update.assert_called_once()  # mismo id: no cancela nada
 
+    def _preapproval(self, sdk, status='authorized', plan_mp='mp_pm', email='otro@mercadopago.com', **extra):
+        sdk.preapproval.return_value.get.return_value = {"status": 200, "response": {
+            "payer_email": email, "status": status, "preapproval_plan_id": plan_mp, **extra}}
+
+    def _webhook(self, sub_id):
+        payload = {"type": "subscription_preapproval", "data": {"id": sub_id}}
+        return self.client.post(reverse('mercadopago_webhook'), json.dumps(payload), content_type='application/json')
+
+    def test_link_lleva_el_id_del_usuario_como_external_reference(self, SDK):
+        r = self.client.get(reverse('gestionar_suscripcion'))
+        self.assertContains(r, f'preapproval_plan_id=mp_pm&amp;external_reference={self.user.pk}')
+
+    def test_regreso_de_mercado_pago_liga_la_suscripcion_al_usuario_logueado(self, SDK):
+        """El correo de Mercado Pago es otro: aun así, al volver con preapproval_id el plan se activa."""
+        SDK.return_value = sdk = MagicMock()
+        self._preapproval(sdk, plan_mp='mp_prm')
+        r = self.client.get(reverse('suscripcion_exitosa') + '?preapproval_id=pre_abc', follow=True)
+        self.assertContains(r, 'Tu plan Pro ya está activo')
+        sus = Suscripcion.objects.get(usuario=self.user)
+        self.assertEqual((sus.estado, sus.plan, sus.periodo, sus.id_suscripcion_mercadopago),
+                         ('activa', 'pro', 'mensual', 'pre_abc'))
+        # El webhook que llega después (con correo distinto) encuentra la suscripción por el id
+        self._preapproval(sdk, status='cancelled', plan_mp='mp_prm')
+        self.assertEqual(self._webhook('pre_abc').status_code, 200)
+        sus.refresh_from_db()
+        self.assertEqual(sus.estado, 'cancelada')
+
+    def test_regreso_sin_parametro_o_con_preapproval_ajeno_no_activa_nada(self, SDK):
+        SDK.return_value = sdk = MagicMock()
+        r = self.client.get(reverse('suscripcion_exitosa'), follow=True)
+        self.assertContains(r, 'se está procesando')
+        self.assertEqual(planes.plan_de(self.user), 'gratis')
+        # Un preapproval que no es de nuestros planes (p. ej. de otro vendedor) no se liga
+        self._preapproval(sdk, plan_mp='plan_de_otro')
+        self.client.get(reverse('suscripcion_exitosa') + '?preapproval_id=pre_x', follow=True)
+        self.assertEqual(planes.plan_de(User.objects.get(pk=self.user.pk)), 'gratis')
+        # Un preapproval que ya es de otro usuario tampoco
+        ana = User.objects.create_user('ana', email='ana@test.com', password='x')
+        activa(ana, 'personal', mp_id='pre_ana')
+        self._preapproval(sdk, plan_mp='mp_pm')
+        self.client.get(reverse('suscripcion_exitosa') + '?preapproval_id=pre_ana', follow=True)
+        self.assertEqual(planes.plan_de(User.objects.get(pk=self.user.pk)), 'gratis')
+        self.assertEqual(Suscripcion.objects.get(usuario=ana).id_suscripcion_mercadopago, 'pre_ana')
+
+    def test_webhook_identifica_por_external_reference_y_si_no_por_correo(self, SDK):
+        SDK.return_value = sdk = MagicMock()
+        sdk.preapproval.return_value.update.return_value = {"status": 200, "response": {}}
+        self._preapproval(sdk, plan_mp='mp_pa', external_reference=str(self.user.pk))   # correo distinto
+        self.assertEqual(self._webhook('pre_ref').status_code, 200)
+        sus = Suscripcion.objects.get(usuario=self.user)
+        self.assertEqual((sus.plan, sus.periodo, sus.id_suscripcion_mercadopago), ('personal', 'anual', 'pre_ref'))
+        # Sin external_reference y con correo que nadie tiene: 404 para que Mercado Pago reintente
+        self._preapproval(sdk, email='nadie@x.com')
+        self.assertEqual(self._webhook('pre_nadie').status_code, 404)
+        # Correo conocido aunque con mayúsculas distintas: lo encuentra
+        self._preapproval(sdk, email='MAU@test.com', plan_mp='mp_prm')
+        self.assertEqual(self._webhook('pre_mail').status_code, 200)
+        self.assertEqual(Suscripcion.objects.get(usuario=self.user).plan, 'pro')
+
 
 class CrearPlanesMPTest(TestCase):
     """El comando crea los 4 planes en Mercado Pago (o reutiliza los que ya existen) e imprime el .env."""
