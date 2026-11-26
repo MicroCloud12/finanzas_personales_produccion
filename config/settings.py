@@ -1,6 +1,8 @@
 from pathlib import Path
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -11,6 +13,19 @@ NPM_BIN_PATH = r"C:\Program Files\nodejs\npm.cmd"
 SECRET_KEY = os.getenv("SECRET_KEY")
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(',')
+
+# Llave maestra para desenvolver las llaves de cifrado por usuario (MultiFernet: soporta rotación con comas).
+_RUNNING_TESTS = "test" in sys.argv
+_BUILD_CMDS = {"collectstatic", "generar_llave_cifrado", "help"}
+DATA_ENCRYPTION_KEY = os.getenv("DATA_ENCRYPTION_KEY", "").strip()
+if not DATA_ENCRYPTION_KEY and _RUNNING_TESTS:
+    # Llave determinista exclusiva para pruebas automatizadas cuando no viene en entorno.
+    DATA_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+elif not DATA_ENCRYPTION_KEY and not DEBUG and not (_BUILD_CMDS & set(sys.argv[1:])):
+    raise ImproperlyConfigured(
+        "Falta DATA_ENCRYPTION_KEY en las variables de entorno. "
+        "Genera una con: python manage.py generar_llave_cifrado"
+    )
 
 # ngrok (u otro proxy) recibe HTTPS y reenvía en HTTP con X-Forwarded-Proto: https.
 # Sin esto Django cree que la petición es http y allauth manda a Google un
@@ -70,16 +85,26 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.getenv("DB_NAME"),
-        'USER': os.getenv("DB_USER"),
-        'PASSWORD': os.getenv("DB_PASSWORD"),
-        'HOST': os.getenv("DB_HOST"),
-        'PORT': os.getenv("DB_PORT"),
+if _RUNNING_TESTS and os.getenv("USE_SQLITE_TESTS") == "1":
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
     }
-}
+    MIGRATION_MODULES = {'finanzas': None}
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.getenv("DB_NAME"),
+            'USER': os.getenv("DB_USER"),
+            'PASSWORD': os.getenv("DB_PASSWORD"),
+            'HOST': os.getenv("DB_HOST"),
+            'PORT': os.getenv("DB_PORT"),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {

@@ -526,7 +526,9 @@ def update_user_portfolio_history(user_id: int):
         # 1. Precios actuales primero, para que la tabla coincida con la gráfica
         price_service = StockPriceService()
         consultados = set()
-        for inv in inversiones.objects.filter(propietario=user).exclude(emisora_ticker__isnull=True).exclude(emisora_ticker=''):
+        for inv in inversiones.objects.filter(propietario=user):
+            if not inv.emisora_ticker:
+                continue
             new_price = price_service.get_current_price(inv.emisora_ticker)
             if new_price is None:
                 continue

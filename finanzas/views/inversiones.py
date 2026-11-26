@@ -33,16 +33,12 @@ def vista_portafolio(request):
     es_usuario_premium = planes.puede_procesar(request.user)   # le quedan documentos con IA este mes
 
     # --- LÓGICA DE ACTIVOS ---
-    mis_inversiones = inversiones.objects.filter(propietario=request.user).order_by('-valor_actual_mercado')
+    mis_inversiones = list(inversiones.objects.filter(propietario=request.user).order_by('-valor_actual_mercado'))
     
-    # Totales Generales
-    agregados = mis_inversiones.aggregate(
-        total_invertido=Sum('costo_total_adquisicion'),
-        valor_actual=Sum('valor_actual_mercado')
-    )
-    
-    total_invertido = agregados['total_invertido'] or Decimal('0.00')
-    valor_total = agregados['valor_actual'] or Decimal('0.00')
+    # Totales Generales (calculados en Python porque las columnas están cifradas en BD)
+    cero = Decimal('0.00')
+    total_invertido = sum((i.costo_total_adquisicion or cero for i in mis_inversiones), cero)
+    valor_total = sum((i.valor_actual_mercado or cero for i in mis_inversiones), cero)
     ganancia_total = valor_total - total_invertido
     
     # Porcentaje de ganancia total
