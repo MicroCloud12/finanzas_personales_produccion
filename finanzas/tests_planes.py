@@ -135,3 +135,61 @@ class PaginaPlanesYWebhookTest(TestCase):
         webhook('pre_nuevo', 'desconocido')                      # id que no reconocemos: Personal mensual
         self.assertEqual((sus.plan, sus.periodo), ('personal', 'mensual'))
         sdk.preapproval.return_value.update.assert_called_once()  # mismo id: no cancela nada
+
+
+class CrearPlanesMPTest(TestCase):
+    """El comando crea los 4 planes en Mercado Pago (o reutiliza los que ya existen) e imprime el .env."""
+
+    def _sdk(self, existentes=None):
+        sdk = MagicMock()
+        sdk.preapproval_plan.return_value.search.return_value = {
+            "status": 200, "response": {"results": [{"reason": r, "id": i} for r, i in (existentes or {}).items()]}}
+        sdk.preapproval_plan.return_value.create.side_effect = lambda cuerpo: {
+            "status": 201, "response": {"id": "id_" + cuerpo["reason"].split('(')[1][:3] + cuerpo["reason"].split()[2][:3]}}
+        return sdk
+
+    @patch.dict('os.environ', {'MERCADOPAGO_ACCESS_TOKEN': 'APP_USR-x'})
+    @patch('finanzas.management.commands.crear_planes_mp.mercadopago.SDK')
+    def test_crea_los_cuatro_planes(self, SDK):
+        from io import StringIO
+        from django.core.management import call_command
+        SDK.return_value = sdk = self._sdk()
+        salida = StringIO()
+        call_command('crear_planes_mp', '--dominio', 'prismavault.mx', stdout=salida)
+        cuerpos = [c.args[0] for c in sdk.preapproval_plan.return_value.create.call_args_list]
+        self.assertEqual(len(cuerpos), 4)
+        por_razon = {c['reason']: c for c in cuerpos}
+        p = por_razon['Prisma Vault Personal (mensual)']['auto_recurring']
+        self.assertEqual((p['transaction_amount'], p['frequency'], p['frequency_type'], p['currency_id']), (99, 1, 'months', 'MXN'))
+        a = por_razon['Prisma Vault Pro (anual)']['auto_recurring']
+        self.assertEqual((a['transaction_amount'], a['frequency']), (1908, 12))
+        self.assertEqual(cuerpos[0]['back_url'], 'https://prismavault.mx/suscripcion/exitosa/')
+        texto = salida.getvalue()
+        for variable in ('MERCADOPAGO_PLAN_PERSONAL_MENSUAL=', 'MERCADOPAGO_PLAN_PERSONAL_ANUAL=',
+                         'MERCADOPAGO_PLAN_PRO_MENSUAL=', 'MERCADOPAGO_PLAN_PRO_ANUAL='):
+            self.assertIn(variable, texto)
+        self.assertIn('https://prismavault.mx/suscripcion/webhook/', texto)
+
+    @patch.dict('os.environ', {'MERCADOPAGO_ACCESS_TOKEN': 'TEST-x'})
+    @patch('finanzas.management.commands.crear_planes_mp.mercadopago.SDK')
+    def test_reutiliza_los_que_ya_existen_y_avisa_si_el_token_es_de_pruebas(self, SDK):
+        from io import StringIO
+        from django.core.management import call_command
+        SDK.return_value = sdk = self._sdk({'Prisma Vault Personal (mensual)': 'viejo_1', 'Prisma Vault Pro (anual)': 'viejo_2'})
+        salida = StringIO()
+        call_command('crear_planes_mp', '--dominio', 'prismavault.mx', stdout=salida)
+        self.assertEqual(sdk.preapproval_plan.return_value.create.call_count, 2)   # solo los que faltaban
+        self.assertIn('MERCADOPAGO_PLAN_PERSONAL_MENSUAL=viejo_1', salida.getvalue())
+        self.assertIn('MERCADOPAGO_PLAN_PRO_ANUAL=viejo_2', salida.getvalue())
+        self.assertIn('PRUEBAS', salida.getvalue())
+
+    @patch.dict('os.environ', {'MERCADOPAGO_ACCESS_TOKEN': 'APP_USR-x'})
+    @patch('finanzas.management.commands.crear_planes_mp.mercadopago.SDK')
+    def test_solo_mostrar_no_crea_nada(self, SDK):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('crear_planes_mp', '--dominio', 'prismavault.mx', '--solo-mostrar', stdout=salida)
+        SDK.assert_not_called()
+        self.assertIn('$99 MXN cada 1 mes', salida.getvalue())
+        self.assertIn('$1908 MXN cada 12 mes', salida.getvalue())
