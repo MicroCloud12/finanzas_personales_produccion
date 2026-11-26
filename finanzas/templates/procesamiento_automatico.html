@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
-{% load socialaccount %}
+{% load socialaccount drive_tags %}
 
 {% block content %}
 {# --- CONTENEDOR PRINCIPAL AJUSTADO --- #}
@@ -12,7 +12,7 @@
         {# --- PASO 1: CONEXIÓN --- #}
         <div class="mb-6">
             <h2 class="text-lg font-semibold mb-2">Paso 1: Conectar Cuenta</h2>
-            {% if user.socialaccount_set.all %}
+            {% if user|tiene_drive %}
                 <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded" role="alert">
                     <p class="font-bold">¡Conectado!</p>
                     <p class="text-sm">Tu cuenta de Google Drive ya está vinculada.</p>
@@ -21,7 +21,7 @@
                  <p class="text-gray-600 mb-3 text-sm">
                     Para poder leer tus tickets, primero necesitamos tu permiso.
                 </p>
-                <a href="{% provider_login_url 'google' auth_params='access_type=offline&prompt=consent' %}" class="w-full flex items-center justify-center bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm">
+                <a href="{% url_conectar_drive %}" class="w-full flex items-center justify-center bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm">
                     <img class="h-6 w-6 mr-2" src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google logo">
                     <span>Conectar con Google Drive</span>
                 </a>
@@ -37,7 +37,7 @@
                 Busca y procesa nuevos tickets en tu Google Drive.
             </p>
 
-            {% if user.socialaccount_set.all %}
+            {% if user|tiene_drive %}
                 <div class="text-center">
                     <button id="start-processing-btn" data-start-url="{% url 'procesar_drive' %}" data-redirect-url="{% url 'revisar_tickets' %}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
                         Sincronizar Tickets desde Drive

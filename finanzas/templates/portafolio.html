@@ -7,12 +7,12 @@
     {# --- HEADER SECTION --- #}
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h1 class="text-3xl font-bold text-gray-900 font-display">Mi Portafolio</h1>
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 font-display">Mi Portafolio</h1>
             <p class="mt-1 text-sm text-gray-500">Gestión de activos, criptomonedas y acciones.</p>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
             <a href="{% url 'crear_inversion' %}"
-                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                class="flex-1 sm:flex-none justify-center inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
                 <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -20,7 +20,7 @@
                 Nueva Inversión
             </a>
             <a href="{% url 'procesamiento_inversiones' %}"
-                class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-xl text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                class="flex-1 sm:flex-none justify-center inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-xl text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
                 <svg class="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -30,10 +30,10 @@
         </div>
     </div>
 
-  <div class="flex flex-wrap gap-4 mb-8">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
         {# --- TOTAL HOLDING CARD --- #}
-        <div class="bg-white rounded-[1.5rem] p-7 flex flex-col justify-between relative overflow-hidden shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-gray-100 flex-1 min-w-[300px] max-w-full">
-            <div class="relative z-10 flex justify-between items-start mb-8">
+        <div class="bg-white rounded-[1.5rem] p-5 sm:p-7 flex flex-col justify-between relative overflow-hidden shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-gray-100 min-w-0">
+            <div class="relative z-10 flex justify-between items-start mb-6 sm:mb-8">
                 <span class="text-gray-900 font-bold text-[0.9375rem] tracking-wide">Total Holding</span>
                 <div class="flex items-center gap-2">
                     <button class="px-4 py-1.5 rounded-full border border-gray-200 text-xs font-medium text-gray-600 bg-transparent cursor-pointer transition-colors hover:bg-gray-50">6M</button>
@@ -45,8 +45,8 @@
                 </div>
             </div>
 
-            <div class="relative z-10 mt-6">
-                <h2 class="text-[2.75rem] font-semibold tracking-tight mb-3 text-gray-900 leading-none">$ {{ valor_total|floatformat:2|intcomma }}</h2>
+            <div class="relative z-10 mt-2 sm:mt-6">
+                <h2 class="text-3xl sm:text-[2.75rem] font-semibold tracking-tight mb-3 text-gray-900 leading-none break-words">$ {{ valor_total|floatformat:2|intcomma }}</h2>
                 <div class="flex items-center gap-2.5 mt-3">
                     <span class="text-gray-500 text-[0.8125rem] font-medium">Return</span>
                     <div class="flex items-center gap-2">
@@ -70,7 +70,7 @@
         </div>
 
         {# --- MY PORTFOLIO CARDS --- #}
-        <div class="bg-white rounded-[1.5rem] p-7 border border-gray-100 flex flex-col justify-between overflow-hidden shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex-[2] min-w-[300px]">
+        <div class="lg:col-span-2 bg-white rounded-[1.5rem] p-5 sm:p-7 border border-gray-100 flex flex-col justify-between overflow-hidden shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] min-w-0">
             <div class="flex justify-between items-center mb-6">
                 <span class="text-gray-900 font-bold text-[0.9375rem] tracking-wide">My Portfolio</span>
                 <div class="flex items-center gap-2">
@@ -121,11 +121,11 @@
 
     {# --- PORTFOLIO PERFORMANCE (evolución diaria del valor / G-P) --- #}
     {% if perf_labels %}
-    <div class="card-premium p-6 sm:p-7">
+    <div class="card-premium p-5 sm:p-7">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h3 class="text-gray-900 font-bold text-lg">Portfolio Performance</h3>
             <div id="perfRangeButtons"
-                class="flex items-center gap-1 bg-gray-50 rounded-full p-1 border border-gray-100 self-start sm:self-auto">
+                class="flex flex-wrap items-center gap-1 bg-gray-50 rounded-full p-1 border border-gray-100 self-start sm:self-auto">
                 <button type="button" data-range="1" class="px-3 py-1.5 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">1D</button>
                 <button type="button" data-range="7" class="px-3 py-1.5 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">1W</button>
                 <button type="button" data-range="30" class="px-3 py-1.5 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">1M</button>
@@ -133,7 +133,7 @@
                 <button type="button" data-range="365" class="px-3 py-1.5 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">1Y</button>
             </div>
         </div>
-        <div class="relative w-full h-[32rem]">
+        <div class="relative w-full h-64 sm:h-96 lg:h-[32rem]">
             <canvas id="portfolioPerformanceChart"></canvas>
         </div>
     </div>
@@ -147,9 +147,9 @@
 
     {# --- ASSETS LIST (Similar to "My Top Coins" / "Markets") --- #}
     <div class="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <h3 class="font-bold text-lg text-gray-900">Mis Activos</h3>
-            <div id="assetsFilter" class="flex items-center gap-2 self-start sm:self-auto">
+            <div id="assetsFilter" class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                 <button type="button" data-filter="all"
                     class="text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-600 text-white transition-colors">Todos</button>
                 <button type="button" data-filter="win"

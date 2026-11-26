@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto mt-10">
+<div class="max-w-3xl mx-auto mt-2 sm:mt-8 mb-8">
     <div class="mb-6 flex justify-start">
         <a href="{% url 'gestionar_cuentas' %}"
             class="inline-flex justify-center items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-xl text-gray-700 bg-white hover:bg-gray-50 focus:outline-none transition-colors">
@@ -13,10 +13,10 @@
     </div>
 
     <div class="bg-white rounded-[1.5rem] shadow-sm border border-gray-100 overflow-hidden">
-        <div class="p-8">
-            <div class="mb-8 text-center">
-                <h1 class="text-3xl font-bold text-gray-900 font-display mb-2">Editar Cuenta</h1>
-                <p class="text-gray-500">Actualiza los detalles de "{{ cuenta.nombre }}".</p>
+        <div class="p-5 sm:p-8">
+            <div class="mb-6 sm:mb-8 text-center">
+                <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 font-display mb-2">Editar Cuenta</h1>
+                <p class="text-sm sm:text-base text-gray-500">Actualiza los detalles de "{{ cuenta.nombre }}".</p>
             </div>
 
             <form method="POST" class="space-y-6">

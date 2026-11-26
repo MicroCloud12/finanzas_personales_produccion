@@ -17,9 +17,9 @@
 {% block tarjeta %}
     {% for pendiente in pendientes %}
     <div class="bg-white rounded-[1.5rem] shadow-sm border border-gray-100 overflow-hidden mb-8">
-        <div class="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h3 class="font-bold text-lg text-gray-800">Extraído de: <span class="text-gray-600 font-normal">{{ pendiente.nombre_archivo }}</span></h3>
-            <div class="flex items-center gap-3">
+        <div class="p-4 sm:p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h3 class="font-bold text-lg text-gray-800 break-words">Extraído de: <span class="text-gray-600 font-normal break-all">{{ pendiente.nombre_archivo }}</span></h3>
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 {% url 'aprobar_amortizacion' pendiente.id as url_aprobar %}
                 {% include 'partials/_boton_aprobar.html' with texto="Aprobar" formaction=url_aprobar only %}
                 {% url 'rechazar_amortizacion' pendiente.id as url_rechazar %}

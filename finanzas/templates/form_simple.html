@@ -1,15 +1,15 @@
 {% extends 'base.html' %}
 {# Formulario genérico de alta/edición: titulo, boton, cancel_url + form #}
 {% block content %}
-<div class="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-  <div class="sm:mx-auto sm:w-full sm:max-w-md">
-    <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+<div class="max-w-lg mx-auto py-4 sm:py-8">
+  <div>
+    <h2 class="text-center text-2xl sm:text-3xl font-bold text-gray-900 font-display">
       {{ titulo }}
     </h2>
   </div>
 
-  <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-    <div class="bg-white py-8 px-4 shadow-xl sm:rounded-lg sm:px-10">
+  <div class="mt-6">
+    <div class="bg-white py-6 px-5 sm:p-8 shadow-sm border border-gray-100 rounded-[1.5rem]">
       <form class="space-y-6" method="POST">
         {% csrf_token %}
         {% for error in form.non_field_errors %}<p class="text-xs text-red-600">{{ error }}</p>{% endfor %}

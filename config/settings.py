@@ -132,16 +132,15 @@ SITE_ID = 1
 ACCOUNT_EMAIL_VERIFICATION = 'optional' # Puedes cambiarlo a 'mandatory' si quieres verificación de email
 ACCOUNT_LOGOUT_ON_GET = True # Permite el logout con GET para simplificar
 
+# Permiso para leer Drive. Google lo clasifica como "restringido" (verificación con auditoría de
+# seguridad), así que NO va en el login: se pide aparte, solo a quien pulse "Conectar Google Drive"
+# (ver url_conectar_drive en finanzas/templatetags/drive_tags.py y la vista drive_conectado).
+GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
+
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
-        'SCOPE': [
-            'profile',
-            'email',
-            'https://www.googleapis.com/auth/drive.readonly',
-        ],
-        'AUTH_PARAMS': {
-            'access_type': 'offline',  # <-- ESTE ES EL CAMBIO CLAVE
-        },
+        # Solo identidad: no sensible para Google, sin pantalla de "app no verificada".
+        'SCOPE': ['profile', 'email'],
         'OAUTH_PKCE_ENABLED': True,
         # Si Google confirma (email verificado) un correo que ya pertenece a un
         # usuario local, inicia sesión en ese usuario en vez de mandar al

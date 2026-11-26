@@ -22,13 +22,13 @@
 
 {% block tarjeta_herramientas %}
     {% if tickets %}
-    <div class="flex items-center gap-2 text-sm text-gray-600">
-        <span>Aplicar a todos:</span>
-        <select id="aplicar_cuenta" class="pl-2 pr-8 py-1.5 text-sm border-gray-300 rounded-lg shadow-sm bg-white">
+    <div class="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+        <span class="w-full sm:w-auto text-xs sm:text-sm">Aplicar a todos:</span>
+        <select id="aplicar_cuenta" class="flex-1 sm:flex-none min-w-[8rem] pl-2 pr-8 py-1.5 text-sm border-gray-300 rounded-lg shadow-sm bg-white">
             <option value="">Cuenta…</option>
             {% for cuenta in cuentas_usuario %}<option value="{{ cuenta.nombre }}">{{ cuenta.nombre }}</option>{% endfor %}
         </select>
-        <select id="aplicar_categoria" class="pl-2 pr-8 py-1.5 text-sm border-gray-300 rounded-lg shadow-sm bg-white">
+        <select id="aplicar_categoria" class="flex-1 sm:flex-none min-w-[8rem] pl-2 pr-8 py-1.5 text-sm border-gray-300 rounded-lg shadow-sm bg-white">
             <option value="">Categoría…</option>
             {% for c in categorias %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
         </select>

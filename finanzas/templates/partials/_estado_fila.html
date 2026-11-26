@@ -1,6 +1,6 @@
 {% load humanize dinero %}
 <tr class="{% if f.es_total %}bg-gray-50 font-semibold{% endif %}">
-    <td class="px-4 py-2 text-gray-900" style="position:sticky;left:0;background:{% if f.es_total %}#f9fafb{% else %}#fff{% endif %};{% if not f.es_total %}padding-left:2rem{% endif %}">{{ f.nombre }}</td>
+    <td class="{% if not f.es_total %}pl-5 sm:pl-8{% else %}pl-3 sm:pl-4{% endif %} pr-2 sm:pr-4 py-2 text-gray-900 z-10 max-w-[8.5rem] sm:max-w-none truncate" style="position:sticky;left:0;background:{% if f.es_total %}#f9fafb{% else %}#fff{% endif %}" title="{{ f.nombre }}">{{ f.nombre }}</td>
     {% for c in f.celdas %}
     <td class="px-1.5 py-2 text-right {% if c.valor == 0 %}text-gray-300{% else %}text-gray-800{% endif %}"
         {% if c.revisar %}style="background:#fef3c7" title="Se aleja {{ c.dif|dinero_signo:0 }} del promedio {{ f.promedio|dinero:0 }}"{% endif %}>

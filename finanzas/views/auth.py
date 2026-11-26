@@ -10,7 +10,10 @@ from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect
 
 
-from allauth.socialaccount.models import SocialAccount
+import requests
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+from allauth.socialaccount.models import SocialAccount, SocialToken
 
 from ..forms import FormularioRegistroPersonalizado
 from ..models import Suscripcion, Cuenta, registro_transacciones
@@ -75,6 +78,37 @@ def mi_perfil(request):
         'num_movimientos': registro_transacciones.objects.filter(propietario=request.user).count(),
     }
     return render(request, 'mi_perfil.html', context)
+
+
+GOOGLE_TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo'
+
+
+@login_required
+def drive_conectado(request):
+    """Google nos regresa aquí después de "Conectar Google Drive". Preguntamos a Google qué permisos
+    trae el token (el usuario puede desmarcar Drive en la pantalla de consentimiento) y dejamos la
+    marca `drive_ok` en su cuenta social, que es lo que consultan `tiene_drive` y los botones."""
+    cuenta = SocialAccount.objects.filter(user=request.user, provider='google').first()
+    token = SocialToken.objects.filter(account=cuenta).first() if cuenta else None
+    ok = False
+    if token:
+        try:
+            r = requests.get(GOOGLE_TOKENINFO_URL, params={'access_token': token.token}, timeout=10)
+            ok = settings.GOOGLE_DRIVE_SCOPE in r.json().get('scope', '').split()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("No se pudo comprobar el permiso de Drive de %s: %s", request.user, e)
+    if cuenta is not None:
+        cuenta.extra_data = {**(cuenta.extra_data or {}), 'drive_ok': ok}
+        cuenta.save(update_fields=['extra_data'])
+    if ok:
+        messages.success(request, "Google Drive conectado. Ya puedes procesar tus archivos.")
+    else:
+        messages.warning(request, "No obtuvimos permiso para leer tu Drive. Vuelve a intentarlo y, en la "
+                                  "pantalla de Google, deja marcada la casilla de Google Drive.")
+    destino = request.GET.get('next', '')
+    if not url_has_allowed_host_and_scheme(destino, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        destino = reverse('mi_perfil')
+    return redirect(destino)
 
 
 @login_required

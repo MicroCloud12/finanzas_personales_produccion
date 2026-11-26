@@ -9,6 +9,7 @@ import mercadopago
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+from django.conf import settings
 from allauth.socialaccount.models import SocialApp, SocialToken, SocialAccount
 from django.contrib.sessions.models import Session
 from ..models import User
@@ -21,12 +22,18 @@ class GoogleDriveService:
         try:
             app = SocialApp.objects.get(provider='google')
             google_token = SocialToken.objects.get(account__user=user, account__provider='google')
+            if not google_token.token_secret:
+                # Sin refresh token no hay permiso de Drive: entró con Google pero no conectó Drive.
+                raise ConnectionError("Google Drive no está conectado (falta el permiso de lectura).")
+            # token=None: el access token guardado es el del último login (solo identidad); con el
+            # refresh token, que sí tiene el permiso de Drive, google-auth pide uno nuevo al usarlo.
             creds = Credentials(
-                token=google_token.token,
+                token=None,
                 refresh_token=google_token.token_secret,
                 token_uri='https://oauth2.googleapis.com/token',
                 client_id=app.client_id,
-                client_secret=app.secret
+                client_secret=app.secret,
+                scopes=[settings.GOOGLE_DRIVE_SCOPE],
             )
             self.service = build('drive', 'v3', credentials=creds)
         except (SocialToken.DoesNotExist, SocialApp.DoesNotExist) as e:

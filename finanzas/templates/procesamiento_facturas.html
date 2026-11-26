@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
-{% load socialaccount %}
+{% load socialaccount drive_tags %}
 
 {% block content %}
 <div class="max-w-md mx-auto mt-10 mb-10">
@@ -11,13 +11,13 @@
         {# --- Estado de Conexión --- #}
         <div class="mb-6">
             <h2 class="text-lg font-semibold mb-2">Paso 1: Conexión</h2>
-            {% if user.socialaccount_set.all %}
+            {% if user|tiene_drive %}
                 <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded">
                     <p class="font-bold">¡Conectado!</p>
                     <p class="text-sm">Tu cuenta de Google Drive está lista.</p>
                 </div>
             {% else %}
-                <a href="{% provider_login_url 'google' auth_params='access_type=offline&prompt=consent' %}" class="block w-full text-center bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50">
+                <a href="{% url_conectar_drive %}" class="block w-full text-center bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50">
                     Conectar Google Drive
                 </a>
             {% endif %}
@@ -32,7 +32,7 @@
                 Buscaremos tickets en tu carpeta para extraer folios y datos fiscales.
             </p>
 
-            {% if user.socialaccount_set.all %}
+            {% if user|tiene_drive %}
                 <div class="text-center">
                     {# AQUÍ ESTÁ LA MAGIA: Este botón llama a la API y luego redirige a la lista #}
                     <button id="start-processing-btn" 
