@@ -1,0 +1,137 @@
+"""Planes Gratis / Personal / Pro: cuota mensual de documentos con IA, página de planes y webhook."""
+import json
+from datetime import timedelta
+from unittest.mock import MagicMock, Mock, patch
+
+from django.contrib.auth.models import User
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+
+from . import planes
+from .models import Suscripcion, UsoIA
+
+
+def activa(user, plan='personal', periodo='mensual', dias=20, mp_id='pre_1'):
+    ahora = timezone.now()
+    sus, _ = Suscripcion.objects.update_or_create(usuario=user, defaults=dict(
+        estado='activa', plan=plan, periodo=periodo, fecha_inicio=ahora,
+        fecha_fin=ahora + timedelta(days=dias), id_suscripcion_mercadopago=mp_id))
+    return sus
+
+
+class CuotaTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('mau', email='mau@test.com', password='x')
+
+    def test_sin_suscripcion_es_gratis_con_10_documentos(self):
+        self.assertEqual(planes.plan_de(self.user), 'gratis')
+        self.assertEqual(planes.documentos_restantes(self.user), 10)
+        planes.registrar_documentos(self.user, 7)
+        planes.registrar_documentos(self.user, 7)          # se pasa: el tope se aplica al lanzar, no aquí
+        self.assertEqual(planes.documentos_usados(self.user), 14)
+        self.assertEqual(planes.documentos_restantes(self.user), 0)
+        self.assertFalse(planes.puede_procesar(self.user))
+        self.assertIn('Personal', planes.mensaje_sin_cuota(self.user))
+        self.assertIn('$99', planes.mensaje_sin_cuota(self.user))
+
+    def test_el_contador_es_por_mes(self):
+        hoy = timezone.localdate()
+        mes_pasado = (hoy.replace(day=1) - timedelta(days=1))
+        planes.registrar_documentos(self.user, 10, hoy=mes_pasado)
+        self.assertEqual(planes.documentos_usados(self.user), 0)
+        self.assertEqual(UsoIA.objects.filter(usuario=self.user).count(), 1)
+
+    def test_plan_personal_y_pro(self):
+        sus = activa(self.user, 'personal')
+        self.user.refresh_from_db()
+        self.assertEqual(planes.tope_documentos(self.user), 150)
+        self.assertFalse(planes.puede_facturar(self.user))
+        sus.plan = 'pro'; sus.save()
+        self.user = User.objects.get(pk=self.user.pk)
+        self.assertEqual(planes.tope_documentos(self.user), 600)
+        self.assertTrue(planes.puede_facturar(self.user))
+        # vencida: vuelve a Gratis aunque diga 'pro'
+        sus.fecha_fin = timezone.now() - timedelta(days=1); sus.save()
+        self.user = User.objects.get(pk=self.user.pk)
+        self.assertEqual(planes.plan_de(self.user), 'gratis')
+
+    def test_lanzar_grupo_respeta_la_cuota(self):
+        from . import tasks
+        tarea = Mock(); tarea.name = 'finanzas.tasks.process_single_ticket'
+        tarea.app.backend = Mock(get=Mock(return_value=None), set=Mock())
+        archivos = [{'id': str(i), 'name': f'{i}.jpg', 'mimeType': 'image/jpeg'} for i in range(12)]
+        planes.registrar_documentos(self.user, 7)           # quedan 3 de 10
+        with patch.object(tasks.GroupResult, 'restore', return_value=None), \
+             patch.object(tasks, 'group') as grupo:
+            # group() recibe un generador: hay que consumirlo para que cuente las subtareas
+            grupo.side_effect = lambda it: (list(it), Mock(apply_async=Mock(return_value=Mock(id='g1'))))[1]
+            r = tasks._lanzar_grupo(tarea, archivos, self.user.id)
+            self.assertEqual(r['status'], 'STARTED')
+            self.assertEqual(r['total_tasks'], 3)              # solo 3 archivos van a la IA
+            self.assertEqual(tarea.s.call_count, 3)
+            self.assertEqual(planes.documentos_usados(self.user), 10)
+            r = tasks._lanzar_grupo(tarea, archivos, self.user.id)
+            self.assertEqual(r['status'], 'SIN_CUOTA')
+            self.assertIn('10 documentos', r['message'])
+            self.assertEqual(tarea.s.call_count, 3)              # no se mandó nada más
+
+    def test_vistas_muestran_el_contador_y_el_boton_segun_cuota(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('presupuesto'))
+        self.assertContains(r, '0 de 10')
+        self.assertContains(r, 'plan Gratis')
+        r = self.client.get(reverse('lista_transacciones'))
+        self.assertContains(r, 'Auto-Scan')                    # gratis también puede procesar
+        planes.registrar_documentos(self.user, 10)
+        r = self.client.get(reverse('lista_transacciones'))
+        self.assertNotContains(r, 'Auto-Scan')                 # sin cuota, se esconde
+        r = self.client.get(reverse('facturacion'))
+        self.assertContains(r, 'es del plan Pro')             # facturar es del Pro
+        self.assertNotContains(r, reverse('procesamiento_facturacion'))
+
+
+@patch('finanzas.services.integration_service.mercadopago.SDK')
+class PaginaPlanesYWebhookTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('mau', email='mau@test.com', password='x')
+        self.client.force_login(self.user)
+        self.env = patch.dict('os.environ', {
+            'MERCADOPAGO_PLAN_PERSONAL_MENSUAL': 'mp_pm', 'MERCADOPAGO_PLAN_PERSONAL_ANUAL': 'mp_pa',
+            'MERCADOPAGO_PLAN_PRO_MENSUAL': 'mp_prm', 'MERCADOPAGO_PLAN_PRO_ANUAL': 'mp_pra'})
+        self.env.start(); self.addCleanup(self.env.stop)
+
+    def test_pagina_de_planes(self, SDK):
+        r = self.client.get(reverse('gestionar_suscripcion'))
+        for texto in ('Gratis', 'Personal', 'Pro', '$99', '$199', '$948', '1,908', '150', '600',
+                      'preapproval_plan_id=mp_pm', 'preapproval_plan_id=mp_pra', 'Tu plan'):
+            self.assertContains(r, texto)
+        self.assertNotContains(r, '$400')
+        activa(self.user, 'personal')
+        r = self.client.get(reverse('gestionar_suscripcion'))
+        self.assertContains(r, 'Cancelar suscripción')
+        self.assertContains(r, 'Cambiar a Pro')
+
+    def test_webhook_fija_plan_periodo_y_cancela_el_anterior(self, SDK):
+        SDK.return_value = sdk = MagicMock()
+        sdk.preapproval.return_value.update.return_value = {"status": 200, "response": {}}
+        sus = activa(self.user, 'personal', mp_id='pre_viejo')
+
+        def webhook(sub_id, plan_mp):
+            sdk.preapproval.return_value.get.return_value = {"status": 200, "response": {
+                "payer_email": "mau@test.com", "status": "authorized", "preapproval_plan_id": plan_mp}}
+            payload = {"type": "subscription_preapproval", "data": {"id": sub_id}}
+            r = self.client.post(reverse('mercadopago_webhook'), json.dumps(payload), content_type='application/json')
+            self.assertEqual(r.status_code, 200)
+            sus.refresh_from_db()
+
+        webhook('pre_nuevo', 'mp_pra')                           # cambió a Pro anual
+        self.assertEqual((sus.plan, sus.periodo, sus.estado), ('pro', 'anual', 'activa'))
+        self.assertEqual(sus.id_suscripcion_mercadopago, 'pre_nuevo')
+        self.assertGreater(sus.fecha_fin, timezone.now() + timedelta(days=360))
+        sdk.preapproval.return_value.update.assert_called_once_with('pre_viejo', {"status": "cancelled"})
+        self.assertEqual(planes.plan_de(User.objects.get(pk=self.user.pk)), 'pro')
+
+        webhook('pre_nuevo', 'desconocido')                      # id que no reconocemos: Personal mensual
+        self.assertEqual((sus.plan, sus.periodo), ('personal', 'mensual'))
+        sdk.preapproval.return_value.update.assert_called_once()  # mismo id: no cancela nada

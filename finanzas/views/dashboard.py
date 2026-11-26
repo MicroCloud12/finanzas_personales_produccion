@@ -13,6 +13,7 @@ from django.shortcuts import render, redirect
 
 from ..models import registro_transacciones, Suscripcion, Cuenta, Presupuesto
 from ..templatetags.dinero import dinero
+from .. import planes
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,8 @@ def vista_dashboard(request):
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
     fin_mes_prev = date(prev_year, prev_month, calendar.monthrange(prev_year, prev_month)[1])
 
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    es_usuario_premium = suscripcion.is_active()
+    # True mientras le queden documentos con IA este mes (todos los planes tienen cuota)
+    es_usuario_premium = planes.puede_procesar(request.user)
 
     # ===== 1. ESTADO DE RESULTADOS DEL MES (flujos) =====
     # ingresos = lo que entró a cuentas de activo

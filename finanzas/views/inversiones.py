@@ -21,6 +21,7 @@ from ..forms import (
 )
 from ..services import StockPriceService
 from ..models import Suscripcion, inversiones, PendingInvestment, PortfolioHistory
+from .. import planes
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,7 @@ def vista_portafolio(request):
     """
     Vista dedicada para el Portafolio de Inversiones.
     """
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    es_usuario_premium = suscripcion.is_active()
+    es_usuario_premium = planes.puede_procesar(request.user)   # le quedan documentos con IA este mes
 
     # --- LÓGICA DE ACTIVOS ---
     mis_inversiones = inversiones.objects.filter(propietario=request.user).order_by('-valor_actual_mercado')
@@ -185,9 +185,8 @@ def lista_inversiones(request):
     """
     Muestra todas las inversiones del usuario logueado.
     """
-    suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
     lista = inversiones.objects.filter(propietario=request.user).order_by('-fecha_compra')
-    es_usuario_premium = suscripcion.is_active()
+    es_usuario_premium = planes.puede_procesar(request.user)
     context = {'inversiones': lista, 'es_usuario_premium': es_usuario_premium}
     return render(request, 'lista_inversiones.html', context)
 

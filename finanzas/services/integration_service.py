@@ -67,16 +67,49 @@ class GoogleDriveService:
         return BytesIO(request.execute())
 
 class MercadoPagoService:
-    """Service for Mercado Pago business logic."""
+    """Service for Mercado Pago business logic.
+
+    Hay un plan de suscripción (preapproval_plan) en Mercado Pago por cada combinación de
+    plan y periodo; sus ids van en el .env: MERCADOPAGO_PLAN_PERSONAL_MENSUAL,
+    MERCADOPAGO_PLAN_PERSONAL_ANUAL, MERCADOPAGO_PLAN_PRO_MENSUAL y MERCADOPAGO_PLAN_PRO_ANUAL
+    (MERCADOPAGO_PLAN_ID, el viejo, se toma como Personal mensual si falta el nuevo).
+    """
+    CHECKOUT_URL = "https://www.mercadopago.com.mx/subscriptions/checkout"
+
     def __init__(self):
         self.sdk = mercadopago.SDK(os.getenv('MERCADOPAGO_ACCESS_TOKEN'))
-        self.plan_id = os.getenv('MERCADOPAGO_PLAN_ID')
+        self.planes = {
+            ('personal', 'mensual'): os.getenv('MERCADOPAGO_PLAN_PERSONAL_MENSUAL') or os.getenv('MERCADOPAGO_PLAN_ID'),
+            ('personal', 'anual'): os.getenv('MERCADOPAGO_PLAN_PERSONAL_ANUAL'),
+            ('pro', 'mensual'): os.getenv('MERCADOPAGO_PLAN_PRO_MENSUAL'),
+            ('pro', 'anual'): os.getenv('MERCADOPAGO_PLAN_PRO_ANUAL'),
+        }
+        self.plan_id = self.planes[('personal', 'mensual')]
         if not self.sdk or not self.plan_id:
             logger.warning("Mercado Pago credentials/Plan ID missing in .env")
-    
-    def crear_link_suscripcion(self, user, back_url: str):
-        base_url = "https://www.mercadopago.com.mx/subscriptions/checkout"
-        return f"{base_url}?preapproval_plan_id={self.plan_id}"
+
+    def crear_link_suscripcion(self, user, back_url: str, plan: str = 'personal', periodo: str = 'mensual'):
+        """Link al checkout de Mercado Pago del plan pedido; None si ese plan no está configurado."""
+        preapproval_plan_id = self.planes.get((plan, periodo))
+        if not preapproval_plan_id:
+            return None
+        return f"{self.CHECKOUT_URL}?preapproval_plan_id={preapproval_plan_id}"
+
+    def plan_por_preapproval(self, preapproval_plan_id: str | None):
+        """(plan, periodo) que corresponde a un preapproval_plan_id de Mercado Pago; Personal mensual
+        si no se reconoce (p. ej. una suscripción creada antes de tener planes separados)."""
+        for clave, valor in self.planes.items():
+            if valor and valor == preapproval_plan_id:
+                return clave
+        return ('personal', 'mensual')
+
+    def cancelar_preapproval(self, preapproval_id: str) -> bool:
+        """Cancela un preapproval concreto (p. ej. el plan anterior cuando el usuario cambia de plan)."""
+        respuesta = self.sdk.preapproval().update(preapproval_id, {"status": "cancelled"})
+        ok = respuesta.get("status") in (200, 201)
+        if not ok:
+            logger.error(f"Mercado Pago respondió {respuesta.get('status')} al cancelar {preapproval_id}")
+        return ok
 
     def buscar_id_suscripcion(self, user) -> str | None:
         """Busca el preapproval vigente del usuario por su email (respaldo cuando el

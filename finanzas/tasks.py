@@ -14,6 +14,7 @@ from google.api_core.exceptions import ResourceExhausted
 from django.conf import settings
 from django.contrib.auth.models import User
 from .services import GoogleDriveService, StockPriceService, TransactionService, InvestmentService, get_gemini_service, ExchangeRateService, MistralOCRService, BillingService
+from . import planes
 from .models import (Deuda, AmortizacionPendiente, Factura, HistorialReciboServicio, Presupuesto,
                      PortfolioHistory, inversiones, Cuenta, registro_transacciones)
 
@@ -88,11 +89,18 @@ def _lanzar_grupo(tarea, archivos, *args):
     en_curso = GroupResult.restore(gid)
     if en_curso is not None and not en_curso.ready() and _lote_vigente(tarea.app, gid):
         return {'status': 'STARTED', 'task_group_id': gid, 'total_tasks': len(en_curso)}
+    # Cuota del plan: cada archivo mandado a la IA cuenta como un documento del mes.
+    usuario = User.objects.get(id=args[0])
+    restantes = planes.documentos_restantes(usuario)
+    if restantes <= 0:
+        return {'status': 'SIN_CUOTA', 'message': planes.mensaje_sin_cuota(usuario)}
+    archivos = archivos[:restantes]
     job = group(tarea.s(*args, item['id'], item['name'], item['mimeType']).set(countdown=i * SEGUNDOS_ENTRE_ARCHIVOS)
                 for i, item in enumerate(archivos))
     result_group = job.apply_async(task_id=gid)  # en un group, task_id se usa como id del grupo
     result_group.save()
     _marcar_lote(tarea.app, gid, len(archivos))
+    planes.registrar_documentos(usuario, len(archivos))
     return {'status': 'STARTED', 'task_group_id': result_group.id, 'total_tasks': len(archivos)}
 
 def _build_user_context(user) -> str:

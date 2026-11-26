@@ -547,6 +547,12 @@ class Suscripcion(models.Model):
     # acceso hasta ``fecha_fin`` porque ese periodo ya lo pagó.
     fecha_cancelacion = models.DateTimeField(null=True, blank=True)
     id_suscripcion_mercadopago = models.CharField(max_length=100, blank=True, null=True)
+    # Plan contratado (ver finanzas/planes.py). Lo fija el webhook de Mercado Pago según el
+    # preapproval_plan_id. Solo cuenta si la suscripción está activa; por eso una suscripción
+    # de antes de los planes (sin dato) se toma como Personal.
+    PLANES = (('gratis', 'Gratis'), ('personal', 'Personal'), ('pro', 'Pro'))
+    plan = models.CharField(max_length=10, choices=PLANES, default='personal')
+    periodo = models.CharField(max_length=7, choices=(('mensual', 'Mensual'), ('anual', 'Anual')), default='mensual')
 
     def is_active(self):
         """
@@ -579,6 +585,21 @@ class Suscripcion(models.Model):
 
     def __str__(self):
         return f"Suscripción de {self.usuario.username} - {self.get_estado_display()}"
+
+
+class UsoIA(models.Model):
+    """Documentos mandados a la IA por usuario y mes (la cuota de cada plan, ver planes.py)."""
+    usuario = models.ForeignKey(User, on_delete=models.CASCADE, related_name='uso_ia')
+    anio = models.PositiveIntegerField()
+    mes = models.PositiveSmallIntegerField()
+    documentos = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('usuario', 'anio', 'mes')
+
+    def __str__(self):
+        return f"{self.usuario.username} {self.anio}-{self.mes:02d}: {self.documentos} documentos"
+
 
 class PendingInvestment(models.Model):
     ESTADOS = (

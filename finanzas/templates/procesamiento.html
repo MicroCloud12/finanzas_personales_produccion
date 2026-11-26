@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
-{% load socialaccount drive_tags %}
+{% load socialaccount drive_tags planes_tags %}
 
 {% block content %}
 <div class="max-w-xl mx-auto mt-4 sm:mt-10 mb-8 sm:mb-16">
@@ -87,6 +87,7 @@
                     <div class="ml-4 w-full">
                         <h2 class="text-lg font-bold text-gray-900">{{ paso2|default:"Sincronizar" }}</h2>
                         <p class="text-gray-500 text-sm mt-1 mb-4">{{ descripcion }}</p>
+                        {% cuota_ia %}
 
                         {% if user|tiene_drive %}
                         <button id="start-processing-btn" data-start-url="{{ start_url }}"

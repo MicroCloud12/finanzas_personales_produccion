@@ -18,6 +18,7 @@ from allauth.socialaccount.models import SocialAccount, SocialToken
 from ..forms import FormularioRegistroPersonalizado
 from ..models import Suscripcion, Cuenta, registro_transacciones
 from ..services import AccountService
+from .. import planes
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,8 @@ def mi_perfil(request):
     """
     context = {
         'suscripcion': Suscripcion.objects.filter(usuario=request.user).first(),
+        'nombre_plan': planes.PLANES[planes.plan_de(request.user)]['nombre'],
+        'cuota': planes.resumen_cuota(request.user),
         # La conexión real con Drive vive en la cuenta social de allauth
         'google_cuenta': SocialAccount.objects.filter(user=request.user, provider='google').first(),
         'today': timezone.now().date(),

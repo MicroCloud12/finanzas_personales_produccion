@@ -19,30 +19,45 @@ from ..services import (
 from ..models import (
     Suscripcion
 )
+from .. import planes
 
 logger = logging.getLogger(__name__)
 
 @login_required
 def gestionar_suscripcion(request):
     """
-    Muestra el estado de la suscripción y genera el link de pago si es necesario.
+    Muestra los tres planes (Gratis, Personal, Pro), el plan vigente y los links de pago de
+    Mercado Pago para contratar o cambiar de plan.
     """
     suscripcion, created = Suscripcion.objects.get_or_create(usuario=request.user)
-    
-    link_pago = None
-    # Sin acceso, o cancelada (aún con días pagados): ofrecer el link para (re)activar
-    if not suscripcion.is_active() or suscripcion.esta_cancelada:
-        try:
-            mp_service = MercadoPagoService()
-            # La vista construye la URL absoluta y se la pasa al servicio
-            success_url = request.build_absolute_uri(reverse('suscripcion_exitosa'))
-            link_pago = mp_service.crear_link_suscripcion(request.user, success_url)
-        except Exception as e:
-            messages.error(request, f"Error al generar link de pago: {e}")
+    plan_actual = planes.plan_de(request.user)
+
+    links = {}
+    try:
+        mp_service = MercadoPagoService()
+        success_url = request.build_absolute_uri(reverse('suscripcion_exitosa'))
+        for plan in planes.PLANES_DE_PAGO:
+            for periodo in planes.PERIODOS:
+                links[f"{plan}_{periodo}"] = mp_service.crear_link_suscripcion(request.user, success_url, plan, periodo)
+    except Exception as e:
+        messages.error(request, f"Error al generar link de pago: {e}")
+
+    tarjetas = []
+    for clave in (planes.GRATIS, planes.PERSONAL, planes.PRO):
+        datos = planes.PLANES[clave]
+        tarjetas.append({
+            'clave': clave, 'nombre': datos['nombre'], 'resumen': datos['resumen'],
+            'mensual': datos['mensual'], 'anual': datos['anual'], 'anual_por_mes': datos['anual'] // 12,
+            'docs_mes': datos['docs_mes'], 'cfdi': datos['cfdi'], 'actual': clave == plan_actual,
+            'link_mensual': links.get(f"{clave}_mensual"), 'link_anual': links.get(f"{clave}_anual"),
+        })
 
     context = {
         'suscripcion': suscripcion,
-        'link_pago': link_pago
+        'plan_actual': plan_actual,
+        'nombre_plan_actual': planes.PLANES[plan_actual]['nombre'],
+        'tarjetas': tarjetas,
+        'cuota': planes.resumen_cuota(request.user),
     }
     return render(request, 'gestionar_suscripcion.html', context)
 
@@ -114,10 +129,20 @@ def mercadopago_webhook(request):
 
                 # ¡La magia! Actualizamos nuestro modelo según el estado de Mercado Pago
                 if status == 'authorized':
+                    plan, periodo = mp_service.plan_por_preapproval(sub_data.get("preapproval_plan_id"))
+                    anterior = suscripcion_obj.id_suscripcion_mercadopago
+                    if anterior and anterior != subscription_id:
+                        # Cambió de plan: el cobro viejo se cancela para no cobrar dos veces
+                        try:
+                            mp_service.cancelar_preapproval(anterior)
+                        except Exception as e:  # el plan nuevo se activa igual; el viejo se revisa a mano
+                            logger.error(f"No se pudo cancelar el preapproval anterior {anterior}: {e}")
                     suscripcion_obj.estado = 'activa'
+                    suscripcion_obj.plan = plan
+                    suscripcion_obj.periodo = periodo
                     suscripcion_obj.id_suscripcion_mercadopago = subscription_id
                     suscripcion_obj.fecha_inicio = timezone.now()
-                    suscripcion_obj.fecha_fin = timezone.now() + timedelta(days=31)
+                    suscripcion_obj.fecha_fin = timezone.now() + timedelta(days=planes.DIAS_POR_PERIODO[periodo])
                     suscripcion_obj.fecha_cancelacion = None
                 elif status == 'cancelled':
                     # Cancelada (desde el perfil o desde Mercado Pago): conserva acceso hasta fecha_fin

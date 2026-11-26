@@ -65,13 +65,9 @@
                         </svg>
                     </div>
                     <div>
-                        {% if suscripcion and suscripcion.is_active %}
                         <p class="text-sm text-gray-500">Tu plan actual</p>
-                        <h4 class="text-xl font-bold text-gray-900">Premium Plan</h4>
-                        {% else %}
-                        <p class="text-sm text-gray-500">Plan actual</p>
-                        <h4 class="text-xl font-bold text-gray-900">Gratuito</h4>
-                        {% endif %}
+                        <h4 class="text-xl font-bold text-gray-900">{{ nombre_plan }}</h4>
+                        <p class="text-xs text-gray-500">{{ cuota.usados }} de {{ cuota.tope }} documentos con IA este mes</p>
                     </div>
                 </div>
 
@@ -82,20 +78,19 @@
                         <p class="font-medium text-gray-900">{{ suscripcion.fecha_inicio|date:"d M, Y" }}</p>
                     </div>
                     <div>
-                        <p class="text-gray-500 mb-1">{% if suscripcion.esta_cancelada %}Acceso Premium hasta{% else %}Próxima Renovación{% endif %}</p>
+                        <p class="text-gray-500 mb-1">{% if suscripcion.esta_cancelada %}Plan {{ nombre_plan }} hasta{% else %}Próxima Renovación{% endif %}</p>
                         <p class="font-medium text-gray-900">{{ suscripcion.fecha_fin|date:"d M, Y" }}</p>
                     </div>
                 </div>
                 {% if suscripcion.esta_cancelada and suscripcion.is_active %}
                 <div class="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
                     Cancelaste tu suscripción{% if suscripcion.fecha_cancelacion %} el {{ suscripcion.fecha_cancelacion|date:"d M, Y" }}{% endif %}.
-                    No se harán más cobros y tu acceso Premium termina el {{ suscripcion.fecha_fin|date:"d M, Y" }}.
+                    No se harán más cobros y tu plan {{ nombre_plan }} termina el {{ suscripcion.fecha_fin|date:"d M, Y" }}.
                 </div>
                 {% endif %}
                 {% else %}
                 <p class="text-gray-600 text-sm mb-6">
-                    Actualiza a Premium para desbloquear todas las funcionalidades avanzadas de análisis y
-                    automatización.
+                    Pasa a Personal o Pro para leer más tickets, recibos y tablas con IA cada mes.
                 </p>
                 {% endif %}
 
@@ -106,7 +101,7 @@
                     </a>
                     {% if suscripcion.puede_cancelarse %}
                     <form method="post" action="{% url 'cancelar_suscripcion' %}" class="w-full sm:w-auto"
-                        onsubmit="return confirm('¿Cancelar tu suscripción Premium?\n\nNo se harán más cobros y conservas el acceso hasta el {{ suscripcion.fecha_fin|date:"d/m/Y" }}.');">
+                        onsubmit="return confirm('¿Cancelar tu plan {{ nombre_plan }}?\n\nNo se harán más cobros y conservas el acceso hasta el {{ suscripcion.fecha_fin|date:"d/m/Y" }}.');">
                         {% csrf_token %}
                         <button type="submit"
                             class="inline-flex justify-center items-center px-4 py-2 border border-gray-200 text-sm font-medium rounded-lg text-gray-600 bg-white hover:border-red-300 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-400 w-full sm:w-auto transition-colors">
@@ -172,7 +167,7 @@
                         <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> Conectado
                     </span>
                     {% else %}
-                    <a href="{% provider_login_url 'google' process='connect' %}"
+                    <a href="{% url 'google_login' %}?process=connect"
                         class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm">
                         Conectar
                     </a>
@@ -296,7 +291,7 @@
                     <ul class="mt-2 text-sm text-gray-600 list-disc list-inside space-y-0.5">
                         <li>Tus cuentas y tarjetas, transacciones y presupuestos</li>
                         <li>Tus inversiones, deudas y facturas</li>
-                        <li>Tu suscripción Premium (se cancela el cobro) y la conexión con Google</li>
+                        <li>Tu suscripción (se cancela el cobro) y la conexión con Google</li>
                     </ul>
                 </div>
             </div>
