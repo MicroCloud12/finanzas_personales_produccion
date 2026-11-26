@@ -133,7 +133,11 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # WhiteNoise: archivos comprimidos y con hash en el nombre (caché larga).
 STORAGES = {
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if _RUNNING_TESTS
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        ),
     },
 }
 
