@@ -66,7 +66,7 @@ class Command(BaseCommand):
         sdk = mercadopago.SDK(token)
         existentes = {}
         try:
-            r = sdk.preapproval_plan().search({"status": "active"})
+            r = sdk.plan().search({"status": "active"})
             if r.get('status') == 200:
                 for p in r.get('response', {}).get('results', []) or []:
                     existentes[p.get('reason')] = p.get('id')
@@ -81,7 +81,7 @@ class Command(BaseCommand):
                 plan_id = existentes[razon]
                 self.stdout.write(f"{razon}: ya existía ({plan_id})")
             else:
-                r = sdk.preapproval_plan().create(cuerpo)
+                r = sdk.plan().create(cuerpo)
                 if r.get('status') not in (200, 201):
                     raise CommandError(f"Mercado Pago respondió {r.get('status')} al crear '{razon}': {r.get('response')}")
                 plan_id = r['response']['id']

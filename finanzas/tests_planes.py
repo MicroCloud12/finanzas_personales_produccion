@@ -3,6 +3,8 @@ import json
 from datetime import timedelta
 from unittest.mock import MagicMock, Mock, patch
 
+from mercadopago import SDK as SDK_REAL   # se guarda antes de que los tests lo reemplacen con un mock
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
@@ -141,10 +143,10 @@ class CrearPlanesMPTest(TestCase):
     """El comando crea los 4 planes en Mercado Pago (o reutiliza los que ya existen) e imprime el .env."""
 
     def _sdk(self, existentes=None):
-        sdk = MagicMock()
-        sdk.preapproval_plan.return_value.search.return_value = {
+        sdk = MagicMock(spec=SDK_REAL)   # con spec, usar un método que el SDK real no tiene (p. ej. preapproval_plan) falla aquí
+        sdk.plan.return_value.search.return_value = {
             "status": 200, "response": {"results": [{"reason": r, "id": i} for r, i in (existentes or {}).items()]}}
-        sdk.preapproval_plan.return_value.create.side_effect = lambda cuerpo: {
+        sdk.plan.return_value.create.side_effect = lambda cuerpo: {
             "status": 201, "response": {"id": "id_" + cuerpo["reason"].split('(')[1][:3] + cuerpo["reason"].split()[2][:3]}}
         return sdk
 
@@ -156,7 +158,7 @@ class CrearPlanesMPTest(TestCase):
         SDK.return_value = sdk = self._sdk()
         salida = StringIO()
         call_command('crear_planes_mp', '--dominio', 'prismavault.mx', stdout=salida)
-        cuerpos = [c.args[0] for c in sdk.preapproval_plan.return_value.create.call_args_list]
+        cuerpos = [c.args[0] for c in sdk.plan.return_value.create.call_args_list]
         self.assertEqual(len(cuerpos), 4)
         por_razon = {c['reason']: c for c in cuerpos}
         p = por_razon['Prisma Vault Personal (mensual)']['auto_recurring']
@@ -178,7 +180,7 @@ class CrearPlanesMPTest(TestCase):
         SDK.return_value = sdk = self._sdk({'Prisma Vault Personal (mensual)': 'viejo_1', 'Prisma Vault Pro (anual)': 'viejo_2'})
         salida = StringIO()
         call_command('crear_planes_mp', '--dominio', 'prismavault.mx', stdout=salida)
-        self.assertEqual(sdk.preapproval_plan.return_value.create.call_count, 2)   # solo los que faltaban
+        self.assertEqual(sdk.plan.return_value.create.call_count, 2)   # solo los que faltaban
         self.assertIn('MERCADOPAGO_PLAN_PERSONAL_MENSUAL=viejo_1', salida.getvalue())
         self.assertIn('MERCADOPAGO_PLAN_PRO_ANUAL=viejo_2', salida.getvalue())
         self.assertIn('PRUEBAS', salida.getvalue())
